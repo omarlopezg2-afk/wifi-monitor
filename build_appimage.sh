@@ -1,0 +1,148 @@
+#!/bin/bash
+# ─────────────────────────────────────────────────────────────────
+#  build_appimage.sh — Genera WiFiMonitor-x86_64.AppImage
+#  Requisitos: python3, pip, fuse (o libfuse2), wget
+#  Uso: bash build_appimage.sh
+# ─────────────────────────────────────────────────────────────────
+set -e
+
+APP_NAME="WiFiMonitor"
+VERSION="2.0"
+ARCH="x86_64"
+APPDIR="${APP_NAME}.AppDir"
+OUTFILE="${APP_NAME}-${VERSION}-${ARCH}.AppImage"
+
+echo ""
+echo "╔══════════════════════════════════════════════╗"
+echo "║   WiFi Monitor — Build AppImage Linux        ║"
+echo "╚══════════════════════════════════════════════╝"
+echo ""
+
+# ── 1. Herramientas base ─────────────────────────────────────────
+echo "▶ Instalando herramientas del sistema..."
+sudo apt-get update -qq
+sudo apt-get install -y --no-install-recommends \
+    python3 python3-pip python3-venv \
+    libfuse2 wget patchelf \
+    wireless-tools iproute2 net-tools arp-scan nmap \
+    iputils-ping libnotify-bin
+
+# ── 2. PyInstaller + dependencias Python ─────────────────────────
+echo ""
+echo "▶ Instalando dependencias Python..."
+pip install --quiet --upgrade \
+    pyinstaller streamlit plotly pandas psutil speedtest-cli
+
+# ── 3. Compilar con PyInstaller ──────────────────────────────────
+echo ""
+echo "▶ Compilando binario con PyInstaller..."
+
+pyinstaller \
+    --noconfirm \
+    --onedir \
+    --windowed \
+    --name "${APP_NAME}" \
+    --add-data "wifi_monitor.py:." \
+    --hidden-import "streamlit" \
+    --hidden-import "streamlit.web.cli" \
+    --hidden-import "streamlit.runtime.scriptrunner" \
+    --hidden-import "altair" \
+    --hidden-import "plotly" \
+    --hidden-import "pandas" \
+    --hidden-import "psutil" \
+    --collect-all streamlit \
+    --collect-all altair \
+    launcher.py
+
+echo "   ✅ Binario generado en dist/${APP_NAME}/"
+
+# ── 4. Construir estructura AppDir ───────────────────────────────
+echo ""
+echo "▶ Construyendo AppDir..."
+rm -rf "${APPDIR}"
+mkdir -p "${APPDIR}/usr/bin"
+mkdir -p "${APPDIR}/usr/share/icons/hicolor/256x256/apps"
+
+# Copiar binario PyInstaller
+cp -r "dist/${APP_NAME}/." "${APPDIR}/usr/bin/"
+
+# Ícono (usando el emoji como PNG con Python si no existe wifi_monitor.png)
+if [ -f "wifi_monitor.png" ]; then
+    cp wifi_monitor.png "${APPDIR}/usr/share/icons/hicolor/256x256/apps/${APP_NAME}.png"
+    cp wifi_monitor.png "${APPDIR}/${APP_NAME}.png"
+else
+    # Crear ícono placeholder si no existe
+    python3 - <<'PYEOF'
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    img = Image.new("RGBA", (256, 256), (13, 33, 55, 255))
+    draw = ImageDraw.Draw(img)
+    draw.text((64, 80), "📡", fill=(126, 179, 255, 255))
+    draw.text((40, 160), "WiFi Mon", fill=(255, 255, 255, 255))
+    img.save("wifi_monitor.png")
+    print("   Ícono generado con PIL")
+except ImportError:
+    # Crear un PNG mínimo vacío (1x1) si PIL no está disponible
+    import struct, zlib
+    def png_chunk(name, data):
+        c = zlib.crc32(name + data) & 0xffffffff
+        return struct.pack(">I", len(data)) + name + data + struct.pack(">I", c)
+    with open("wifi_monitor.png", "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n")
+        f.write(png_chunk(b"IHDR", struct.pack(">IIBBBBB", 1,1,8,2,0,0,0)))
+        f.write(png_chunk(b"IDAT", zlib.compress(b"\x00\xff\xff\xff")))
+        f.write(png_chunk(b"IEND", b""))
+    print("   Ícono placeholder creado")
+PYEOF
+    cp wifi_monitor.png "${APPDIR}/usr/share/icons/hicolor/256x256/apps/${APP_NAME}.png"
+    cp wifi_monitor.png "${APPDIR}/${APP_NAME}.png"
+fi
+
+# ── 5. AppRun ────────────────────────────────────────────────────
+cat > "${APPDIR}/AppRun" << 'EOF'
+#!/bin/bash
+SELF="$(readlink -f "$0")"
+HERE="${SELF%/*}"
+export PATH="${HERE}/usr/bin:${PATH}"
+exec "${HERE}/usr/bin/WiFiMonitor" "$@"
+EOF
+chmod +x "${APPDIR}/AppRun"
+
+# ── 6. .desktop file ─────────────────────────────────────────────
+cat > "${APPDIR}/${APP_NAME}.desktop" << EOF
+[Desktop Entry]
+Name=WiFi Monitor
+Comment=Monitor de red WiFi en tiempo real
+Exec=WiFiMonitor
+Icon=${APP_NAME}
+Type=Application
+Categories=Network;Monitor;
+Terminal=false
+StartupNotify=true
+EOF
+
+# ── 7. Descargar appimagetool ────────────────────────────────────
+echo ""
+echo "▶ Descargando appimagetool..."
+if [ ! -f "appimagetool-x86_64.AppImage" ]; then
+    wget -q --show-progress \
+        "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+    chmod +x appimagetool-x86_64.AppImage
+fi
+
+# ── 8. Empaquetar ────────────────────────────────────────────────
+echo ""
+echo "▶ Empaquetando AppImage..."
+ARCH=x86_64 ./appimagetool-x86_64.AppImage "${APPDIR}" "${OUTFILE}"
+
+echo ""
+echo "╔══════════════════════════════════════════════╗"
+echo "║  ✅  AppImage generado correctamente         ║"
+echo "╚══════════════════════════════════════════════╝"
+echo ""
+echo "   📦 Archivo: ${OUTFILE}"
+echo "   📏 Tamaño:  $(du -sh "${OUTFILE}" | cut -f1)"
+echo ""
+echo "   Para ejecutar:"
+echo "   chmod +x ${OUTFILE} && ./${OUTFILE}"
+echo ""

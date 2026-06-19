@@ -48,14 +48,49 @@ fi
 # ── 2. Instalar dependencias ─────────────────────────────────────
 echo "▶ Instalando dependencias Python..."
 pip3 install --quiet --upgrade \
-    pyinstaller streamlit plotly pandas psutil speedtest-cli
+    pyinstaller streamlit plotly pandas psutil speedtest-cli pillow
 
 if ! command -v create-dmg &> /dev/null; then
     echo "▶ Instalando create-dmg..."
     brew install create-dmg
 fi
 
-# ── 3. Compilar con PyInstaller ──────────────────────────────────
+# ── 3. Generar ícono si no existe ────────────────────────────────
+ICON_FLAG=()
+if [ -f "wifi_monitor.icns" ]; then
+    echo "   ✅ Usando wifi_monitor.icns existente"
+    ICON_FLAG=(--icon "wifi_monitor.icns")
+else
+    echo "▶ wifi_monitor.icns no encontrado, generando placeholder..."
+    python3 - <<'PYEOF'
+from PIL import Image, ImageDraw
+import subprocess, os, shutil
+
+# Crear PNG base 1024x1024
+img = Image.new("RGBA", (1024, 1024), (13, 33, 55, 255))
+draw = ImageDraw.Draw(img)
+draw.ellipse((212, 212, 812, 812), outline=(126, 179, 255, 255), width=40)
+draw.ellipse((362, 362, 662, 662), outline=(126, 179, 255, 255), width=30)
+draw.ellipse((462, 462, 562, 562), fill=(126, 179, 255, 255))
+img.save("wifi_monitor_base.png")
+
+iconset = "wifi_monitor.iconset"
+os.makedirs(iconset, exist_ok=True)
+sizes = [16, 32, 64, 128, 256, 512, 1024]
+for s in sizes:
+    img.resize((s, s), Image.LANCZOS).save(f"{iconset}/icon_{s}x{s}.png")
+    if s <= 512:
+        img.resize((s*2, s*2), Image.LANCZOS).save(f"{iconset}/icon_{s}x{s}@2x.png")
+
+subprocess.run(["iconutil", "-c", "icns", iconset, "-o", "wifi_monitor.icns"], check=True)
+shutil.rmtree(iconset)
+os.remove("wifi_monitor_base.png")
+print("   ✅ Ícono placeholder generado: wifi_monitor.icns")
+PYEOF
+    ICON_FLAG=(--icon "wifi_monitor.icns")
+fi
+
+# ── 4. Compilar con PyInstaller ──────────────────────────────────
 echo ""
 echo "▶ Compilando .app con PyInstaller..."
 
@@ -66,7 +101,7 @@ pyinstaller \
     --onedir \
     --windowed \
     --name "${APP_NAME}" \
-    --icon "wifi_monitor.icns" \
+    "${ICON_FLAG[@]}" \
     --osx-bundle-identifier "${BUNDLE_ID}" \
     --add-data "wifi_monitor.py:." \
     --hidden-import "streamlit" \
@@ -82,7 +117,7 @@ pyinstaller \
 
 echo "   ✅ .app generado en: ${APP_BUNDLE}"
 
-# ── 4. Info.plist extra ──────────────────────────────────────────
+# ── 5. Info.plist extra ──────────────────────────────────────────
 # Agregar permisos de red y descriptor legible
 PLIST="${APP_BUNDLE}/Contents/Info.plist"
 if [ -f "$PLIST" ]; then
@@ -94,7 +129,7 @@ if [ -f "$PLIST" ]; then
         "$PLIST" 2>/dev/null || true
 fi
 
-# ── 5. Empaquetar en DMG ─────────────────────────────────────────
+# ── 6. Empaquetar en DMG ─────────────────────────────────────────
 echo ""
 echo "▶ Creando DMG con ventana de instalación..."
 

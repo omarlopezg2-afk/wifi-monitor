@@ -37,7 +37,22 @@ def main():
     # 1. Instalar dependencias Python
     print("▶ Instalando dependencias Python...")
     run([sys.executable, "-m", "pip", "install", "--quiet", "--upgrade",
-         "pyinstaller", "streamlit", "plotly", "pandas", "psutil", "speedtest-cli"])
+         "pyinstaller", "streamlit", "plotly", "pandas", "psutil", "speedtest-cli", "pillow"])
+
+    # 1b. Generar ícono si no existe
+    icon_path = Path("wifi_monitor.ico")
+    if icon_path.exists():
+        print("   ✅ Usando wifi_monitor.ico existente")
+    else:
+        print("▶ wifi_monitor.ico no encontrado, generando placeholder...")
+        from PIL import Image, ImageDraw
+        img = Image.new("RGBA", (256, 256), (13, 33, 55, 255))
+        draw = ImageDraw.Draw(img)
+        draw.ellipse((53, 53, 203, 203), outline=(126, 179, 255, 255), width=10)
+        draw.ellipse((90, 90, 166, 166), outline=(126, 179, 255, 255), width=8)
+        draw.ellipse((115, 115, 141, 141), fill=(126, 179, 255, 255))
+        img.save(icon_path, sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+        print("   ✅ Ícono placeholder generado: wifi_monitor.ico")
 
     # 2. Limpiar builds anteriores
     for d in ("dist", "build", f"{APP_NAME}.spec"):

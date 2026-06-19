@@ -4,7 +4,7 @@
 #
 #  Genera los tres paquetes en paralelo al hacer un tag vX.X:
 #    Linux   → WiFiMonitor-x.x-x86_64.AppImage
-#    Windows → WiFiMonitor-Setup.exe
+#    Windows → WiFiMonitor-Setup.exe (firmado con certificado de código)
 #    macOS   → WiFiMonitor-x.x-macOS.dmg
 #
 #  Los adjunta automáticamente al Release de GitHub.
@@ -76,7 +76,7 @@ jobs:
           path: WiFiMonitor-*.AppImage
 
   # ─────────────────────────────────────────────
-  #  WINDOWS — Instalador .exe
+  #  WINDOWS — Instalador .exe (firmado)
   # ─────────────────────────────────────────────
   build-windows:
     name: 🪟 Windows Installer
@@ -108,6 +108,46 @@ jobs:
       - name: Compilar instalador
         run: |
           iscc WiFiMonitor-Setup.iss
+
+      # ── Firma de código ────────────────────────────────────
+      # El certificado .pfx viaja como secret en base64 y se
+      # reconstruye aquí en disco solo durante el job; se borra
+      # al final aunque falle un paso anterior.
+      - name: Reconstruir certificado .pfx desde el secret
+        shell: pwsh
+        env:
+          BASE64_CERTIFICATE: ${{ secrets.BASE64_CERTIFICATE }}
+        run: |
+          $bytes = [Convert]::FromBase64String($env:BASE64_CERTIFICATE)
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\codesign.pfx", $bytes)
+
+      - name: Firmar el instalador con signtool
+        shell: pwsh
+        env:
+          BASE64_CERTIFICATE_PSW: ${{ secrets.BASE64_CERTIFICATE_PSW }}
+        run: |
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          & $signtool.FullName sign `
+            /f "$env:RUNNER_TEMP\codesign.pfx" `
+            /p "$env:BASE64_CERTIFICATE_PSW" `
+            /fd SHA256 `
+            /tr http://timestamp.digicert.com `
+            /td SHA256 `
+            installer_output\WiFiMonitor-Setup.exe
+
+      - name: Verificar firma
+        shell: pwsh
+        run: |
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          & $signtool.FullName verify /pa installer_output\WiFiMonitor-Setup.exe
+
+      - name: Borrar certificado del disco
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item "$env:RUNNER_TEMP\codesign.pfx" -ErrorAction SilentlyContinue
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

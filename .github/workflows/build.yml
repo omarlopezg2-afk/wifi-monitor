@@ -118,7 +118,8 @@ jobs:
         env:
           BASE64_CERTIFICATE: ${{ secrets.BASE64_CERTIFICATE }}
         run: |
-          $bytes = [Convert]::FromBase64String($env:BASE64_CERTIFICATE)
+          $clean = $env:BASE64_CERTIFICATE.Trim() -replace '\s', ''
+          $bytes = [Convert]::FromBase64String($clean)
           [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\codesign.pfx", $bytes)
 
       - name: Firmar el instalador con signtool
@@ -141,7 +142,17 @@ jobs:
         run: |
           $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
             Sort-Object FullName -Descending | Select-Object -First 1
-          & $signtool.FullName verify /pa installer_output\WiFiMonitor-Setup.exe
+          # Nota: usamos verificación básica (sin /pa) porque el certificado
+          # es autofirmado y su cadena no llega a una CA raíz confiable por
+          # Windows. /pa fallaría aquí aunque la firma esté perfectamente
+          # bien aplicada. Esto solo confirma que la firma existe y el
+          # binario no fue alterado después de firmarlo.
+          & $signtool.FullName verify /v installer_output\WiFiMonitor-Setup.exe
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "La firma no se aplicó correctamente al ejecutable."
+            exit 1
+          }
+          Write-Host "✅ Firma presente y binario íntegro (cadena no verificada: certificado autofirmado)"
 
       - name: Borrar certificado del disco
         if: always()

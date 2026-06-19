@@ -96,6 +96,9 @@ jobs:
           pip install --upgrade pyinstaller streamlit plotly pandas psutil speedtest-cli
 
       - name: Compilar bundle PyInstaller
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: "utf-8"
         run: python build_windows_prep.py
 
       - name: Instalar Inno Setup
@@ -116,8 +119,15 @@ jobs:
   #  macOS — DMG
   # ─────────────────────────────────────────────
   build-mac:
-    name: 🍎 macOS DMG
-    runs-on: macos-14        # Apple Silicon nativo (universal2)
+    name: 🍎 macOS DMG (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - runner: macos-14     # Apple Silicon
+            arch: arm64
+          - runner: macos-13     # Intel
+            arch: x86_64
 
     steps:
       - name: Checkout
@@ -141,7 +151,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mac-dmg
+          name: mac-dmg-${{ matrix.arch }}
           path: WiFiMonitor-*.dmg
 
   # ─────────────────────────────────────────────
@@ -177,6 +187,7 @@ jobs:
             |------------|---------|---------------|
             | 🐧 Linux   | `.AppImage` | `chmod +x WiFiMonitor*.AppImage && ./WiFiMonitor*.AppImage` |
             | 🪟 Windows | `WiFiMonitor-Setup.exe` | Doble clic → Siguiente → Instalar |
-            | 🍎 macOS   | `.dmg` | Arrastrar a Aplicaciones |
+            | 🍎 macOS (Apple Silicon: M1/M2/M3/M4) | `*-macOS-arm64.dmg` | Arrastrar a Aplicaciones |
+            | 🍎 macOS (Intel) | `*-macOS-x86_64.dmg` | Arrastrar a Aplicaciones |
 
             > **macOS**: Si Gatekeeper bloquea la app, ir a Ajustes → Privacidad y seguridad → Abrir igualmente.

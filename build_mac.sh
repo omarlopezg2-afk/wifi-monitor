@@ -10,6 +10,15 @@
 #
 #  Uso: bash build_mac.sh
 #
+#  NOTA SOBRE ARQUITECTURA:
+#    Este build genera un binario para la arquitectura NATIVA de la máquina
+#    donde se compila (arm64 en Apple Silicon, x86_64 en Intel).
+#    NO es universal2 — varias dependencias (Pillow, numpy, etc.) no
+#    distribuyen wheels "fat" completos, lo que rompe PyInstaller con
+#    IncompatibleBinaryArchError. Si necesitas soporte para ambas
+#    arquitecturas, compila dos veces: una en runner macos-14 (arm64)
+#    y otra en macos-13 (Intel x86_64), y distribuye ambos .dmg.
+#
 #  NOTA SOBRE FIRMA (notarización):
 #    Sin firma Apple, macOS Gatekeeper bloqueará la app la primera vez.
 #    El usuario debe ir a: Ajustes → Privacidad y seguridad → Abrir igualmente
@@ -20,7 +29,8 @@ set -e
 APP_NAME="WiFiMonitor"
 VERSION="2.0"
 BUNDLE_ID="com.omarlopez.wifimonitor"
-DMG_OUT="${APP_NAME}-${VERSION}-macOS.dmg"
+ARCH_NAME="$(uname -m)"
+DMG_OUT="${APP_NAME}-${VERSION}-macOS-${ARCH_NAME}.dmg"
 APP_BUNDLE="dist/${APP_NAME}.app"
 
 echo ""
@@ -68,7 +78,6 @@ pyinstaller \
     --hidden-import "psutil" \
     --collect-all streamlit \
     --collect-all altair \
-    --target-arch universal2 \
     launcher.py
 
 echo "   ✅ .app generado en: ${APP_BUNDLE}"

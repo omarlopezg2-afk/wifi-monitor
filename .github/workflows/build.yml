@@ -1,87 +1,182 @@
+# .github/workflows/build.yml
+# ─────────────────────────────────────────────────────────────────
+#  CI/CD — WiFi Monitor Builds Multiplataforma
+#
+#  Genera los tres paquetes en paralelo al hacer un tag vX.X:
+#    Linux   → WiFiMonitor-x.x-x86_64.AppImage
+#    Windows → WiFiMonitor-Setup.exe
+#    macOS   → WiFiMonitor-x.x-macOS.dmg
+#
+#  Los adjunta automáticamente al Release de GitHub.
+# ─────────────────────────────────────────────────────────────────
+
 name: Build Multiplataforma
 
 on:
   push:
     tags:
-      - 'v*'
-
-permissions:
-  contents: write
+      - "v*"          # Dispara al crear un tag como v2.0, v2.1, etc.
+  workflow_dispatch:  # Permite disparar manualmente desde la UI
 
 jobs:
+
+  # ─────────────────────────────────────────────
+  #  LINUX — AppImage
+  # ─────────────────────────────────────────────
   build-linux:
     name: 🐧 Linux AppImage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+
     steps:
-      - name: Checkout código
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configurar Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.11"
 
-      - name: Instalar dependencias y compilar
+      - name: Instalar dependencias del sistema
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libfuse2
-          pip install pyinstaller pandas openpyxl streamlit fastapi uvicorn
-          chmod +x build_appimage.sh
-          python build_all.py --linux
+          sudo apt-get update -qq
+          sudo apt-get install -y libfuse2 patchelf wireless-tools \
+            iproute2 net-tools arp-scan nmap iputils-ping libnotify-bin
 
-      - name: Subir Artifact
-        uses: softprops/action-gh-release@v2
+      - name: Instalar dependencias Python
+        run: |
+          pip install --upgrade pyinstaller streamlit plotly pandas psutil speedtest-cli
+
+      - name: Compilar con PyInstaller
+        run: |
+          pyinstaller \
+            --noconfirm --onedir --windowed \
+            --name WiFiMonitor \
+            --add-data "wifi_monitor.py:." \
+            --hidden-import streamlit \
+            --hidden-import streamlit.web.cli \
+            --hidden-import streamlit.runtime.scriptrunner \
+            --hidden-import altair \
+            --collect-all streamlit \
+            --collect-all altair \
+            launcher.py
+
+      - name: Descargar appimagetool
+        run: |
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+
+      - name: Construir AppDir y empaquetar
+        run: |
+          bash build_appimage.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: dist/*.AppImage
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: linux-appimage
+          path: WiFiMonitor-*.AppImage
 
+  # ─────────────────────────────────────────────
+  #  WINDOWS — Instalador .exe
+  # ─────────────────────────────────────────────
   build-windows:
     name: 🪟 Windows Installer
     runs-on: windows-latest
+
     steps:
-      - name: Checkout código
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configurar Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.11"
 
-      - name: Instalar dependencias y compilar
+      - name: Instalar dependencias Python
         run: |
-          pip install pyinstaller pandas openpyxl streamlit fastapi uvicorn
-          choco install innosetup
-          python build_all.py --windows
+          pip install --upgrade pyinstaller streamlit plotly pandas psutil speedtest-cli
 
-      - name: Subir Artifact
-        uses: softprops/action-gh-release@v2
+      - name: Compilar bundle PyInstaller
+        run: python build_windows_prep.py
+
+      - name: Instalar Inno Setup
+        run: |
+          choco install innosetup --no-progress -y
+
+      - name: Compilar instalador
+        run: |
+          iscc WiFiMonitor-Setup.iss
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: installer_output/WiFiMonitor-Setup.exe
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: windows-installer
+          path: installer_output\WiFiMonitor-Setup.exe
 
+  # ─────────────────────────────────────────────
+  #  macOS — DMG
+  # ─────────────────────────────────────────────
   build-mac:
     name: 🍎 macOS DMG
-    runs-on: macos-latest
+    runs-on: macos-14        # Apple Silicon nativo (universal2)
+
     steps:
-      - name: Checkout código
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configurar Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.11"
 
-      - name: Instalar dependencias y compilar
+      - name: Instalar dependencias Python
         run: |
-          pip install pyinstaller pandas openpyxl streamlit fastapi uvicorn
-          chmod +x build_mac.sh
-          python build_all.py --mac
+          pip install --upgrade pyinstaller streamlit plotly pandas psutil speedtest-cli
 
-      - name: Subir Artifact
+      - name: Instalar create-dmg
+        run: brew install create-dmg
+
+      - name: Build DMG
+        run: bash build_mac.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-dmg
+          path: WiFiMonitor-*.dmg
+
+  # ─────────────────────────────────────────────
+  #  RELEASE — Adjuntar los tres archivos
+  # ─────────────────────────────────────────────
+  release:
+    name: 📦 Crear Release
+    needs: [build-linux, build-windows, build-mac]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Descargar artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Crear Release con los tres paquetes
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.dmg
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            WiFiMonitor-*.AppImage
+            WiFiMonitor-Setup.exe
+            WiFiMonitor-*.dmg
+          body: |
+            ## WiFi Monitor ${{ github.ref_name }}
+
+            ### Descargas
+            | Plataforma | Archivo | Instrucciones |
+            |------------|---------|---------------|
+            | 🐧 Linux   | `.AppImage` | `chmod +x WiFiMonitor*.AppImage && ./WiFiMonitor*.AppImage` |
+            | 🪟 Windows | `WiFiMonitor-Setup.exe` | Doble clic → Siguiente → Instalar |
+            | 🍎 macOS   | `.dmg` | Arrastrar a Aplicaciones |
+
+            > **macOS**: Si Gatekeeper bloquea la app, ir a Ajustes → Privacidad y seguridad → Abrir igualmente.

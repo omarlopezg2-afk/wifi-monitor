@@ -118,24 +118,59 @@ jobs:
         env:
           BASE64_CERTIFICATE: ${{ secrets.BASE64_CERTIFICATE }}
         run: |
+          if ([string]::IsNullOrWhiteSpace($env:BASE64_CERTIFICATE)) {
+            Write-Error "El secret BASE64_CERTIFICATE está vacío o no se cargó."
+            exit 1
+          }
           $clean = $env:BASE64_CERTIFICATE.Trim() -replace '\s', ''
           $bytes = [Convert]::FromBase64String($clean)
-          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\codesign.pfx", $bytes)
+          $pfxPath = "$env:RUNNER_TEMP\codesign.pfx"
+          [IO.File]::WriteAllBytes($pfxPath, $bytes)
+          $size = (Get-Item $pfxPath).Length
+          Write-Host "Certificado reconstruido: $size bytes"
+          if ($size -lt 100) {
+            Write-Error "El .pfx reconstruido es sospechosamente pequeño ($size bytes). El secret probablemente está mal."
+            exit 1
+          }
 
       - name: Firmar el instalador con signtool
         shell: pwsh
         env:
           BASE64_CERTIFICATE_PSW: ${{ secrets.BASE64_CERTIFICATE_PSW }}
         run: |
+          $pfxPath = "$env:RUNNER_TEMP\codesign.pfx"
+
+          # Validar que la contraseña realmente abre el .pfx antes de firmar
+          try {
+            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(
+              $pfxPath, $env:BASE64_CERTIFICATE_PSW,
+              [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable
+            )
+            Write-Host "✅ Certificado abierto correctamente: $($cert.Subject)"
+            Write-Host "Vigencia: $($cert.NotBefore) -> $($cert.NotAfter)"
+          } catch {
+            Write-Error "No se pudo abrir el .pfx con la contraseña dada. Revisa el secret BASE64_CERTIFICATE_PSW. Detalle: $_"
+            exit 1
+          }
+
           $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
             Sort-Object FullName -Descending | Select-Object -First 1
+          Write-Host "Usando signtool: $($signtool.FullName)"
+
           & $signtool.FullName sign `
-            /f "$env:RUNNER_TEMP\codesign.pfx" `
+            /f $pfxPath `
             /p "$env:BASE64_CERTIFICATE_PSW" `
             /fd SHA256 `
             /tr http://timestamp.digicert.com `
             /td SHA256 `
+            /v `
             installer_output\WiFiMonitor-Setup.exe
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "signtool sign devolvió código de error $LASTEXITCODE. La firma NO se aplicó."
+            exit 1
+          }
+          Write-Host "✅ signtool sign terminó con éxito (exit code 0)"
 
       - name: Verificar firma
         shell: pwsh

@@ -40,11 +40,12 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y libfuse2 patchelf wireless-tools \
-            iproute2 net-tools arp-scan nmap iputils-ping libnotify-bin
+            iproute2 net-tools arp-scan nmap iputils-ping libnotify-bin \
+            gir1.2-gtk-3.0 gir1.2-webkit2-4.1 python3-gi python3-gi-cairo
 
       - name: Instalar dependencias Python
         run: |
-          pip install --upgrade pyinstaller streamlit plotly pandas psutil speedtest-cli
+          pip install --upgrade pyinstaller streamlit plotly pandas psutil speedtest-cli pywebview PyGObject
 
       - name: Compilar con PyInstaller
         run: |
@@ -56,8 +57,11 @@ jobs:
             --hidden-import streamlit.web.cli \
             --hidden-import streamlit.runtime.scriptrunner \
             --hidden-import altair \
+            --hidden-import webview \
+            --hidden-import webview.platforms.gtk \
             --collect-all streamlit \
             --collect-all altair \
+            --collect-all webview \
             launcher.py
 
       - name: Descargar appimagetool
@@ -93,7 +97,7 @@ jobs:
 
       - name: Instalar dependencias Python
         run: |
-          pip install --upgrade pyinstaller streamlit plotly pandas psutil speedtest-cli
+          pip install --upgrade pyinstaller streamlit plotly pandas psutil speedtest-cli pywebview pythonnet
 
       - name: Compilar bundle PyInstaller
         env:
@@ -244,7 +248,7 @@ jobs:
 
       - name: Instalar dependencias Python
         run: |
-          pip install --upgrade pyinstaller streamlit plotly pandas psutil speedtest-cli
+          pip install --upgrade pyinstaller streamlit plotly pandas psutil speedtest-cli pywebview pyobjc-core pyobjc-framework-Cocoa pyobjc-framework-WebKit
 
       - name: Instalar create-dmg
         run: brew install create-dmg

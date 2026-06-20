@@ -1,132 +1,116 @@
 """
-WiFi Monitor v2 — Launcher
-Inicia Streamlit en un hilo dentro del mismo proceso (en vez de un
-subproceso aparte) y lo muestra en una ventana nativa (pywebview)
-en vez de abrir el navegador del sistema.
-Compatible con Linux, Windows y macOS.
+build_windows_prep.py
+─────────────────────
+Prepara el bundle PyInstaller en Windows.
+Ejecutar ANTES de compilar WiFiMonitor-Setup.iss con Inno Setup.
 
-IMPORTANTE — por qué Streamlit corre en un hilo y no en subprocess:
-Dentro de un ejecutable empaquetado con PyInstaller, sys.executable
-apunta al propio binario de la app, no a un intérprete de Python
-normal. Lanzar `subprocess.Popen([sys.executable, "-m", "streamlit", ...])`
-en ese contexto relanza el ejecutable completo desde cero (vuelve a
-ejecutar este mismo launcher), que a su vez intenta relanzarse otra
-vez, y así sucesivamente: una bomba fork recursiva que agota CPU y
-RAM en segundos. Por eso Streamlit se arranca aquí con su API en
-proceso (streamlit.web.bootstrap.run) dentro de un hilo, sin crear
-ningún subproceso nuevo.
+Uso (desde cmd o PowerShell, en la carpeta del proyecto):
+    python build_windows_prep.py
 """
 
+import subprocess
 import sys
-import time
-import threading
-import platform
+import shutil
 from pathlib import Path
-from typing import Optional
 
-import webview
+# ── Fix encoding para Windows (cp1252 no soporta emojis/cajas Unicode) ──
+if sys.platform == "win32":
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-PORT = 8501
-URL  = f"http://localhost:{PORT}"
-
-# Localizar wifi_monitor.py junto al ejecutable o al script
-BASE = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
-APP  = BASE / "wifi_monitor.py"
-
-_server_error: Optional[Exception] = None
+APP_NAME = "WiFiMonitor"
 
 
-def run_streamlit_in_thread():
-    """Arranca el servidor Streamlit en el hilo actual (bloqueante)."""
-    global _server_error
-    try:
-        import streamlit.web.bootstrap as bootstrap
-
-        # Streamlit intenta instalar manejadores de señal (SIGTERM,
-        # SIGINT...) al arrancar, pero eso solo funciona en el hilo
-        # principal del intérprete. Como este servidor corre en un
-        # hilo secundario (pywebview necesita el hilo principal para
-        # la ventana), desactivamos ese paso: nosotros controlamos el
-        # ciclo de vida completo del proceso desde main().
-        bootstrap._set_up_signal_handler = lambda server: None
-
-        flag_options = {
-            "server.port": PORT,
-            "server.headless": True,
-            "server.enableCORS": False,
-            "server.enableXsrfProtection": False,
-            "browser.gatherUsageStats": False,
-        }
-        bootstrap.run(str(APP), False, [], flag_options)
-    except Exception as exc:  # noqa: BLE001 - queremos capturar cualquier fallo
-        _server_error = exc
-
-
-def wait_for_server(timeout: int = 40) -> bool:
-    """Espera hasta que el servidor Streamlit responda."""
-    import urllib.request
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if _server_error is not None:
-            return False
-        try:
-            urllib.request.urlopen(URL, timeout=1)
-            return True
-        except Exception:
-            time.sleep(0.5)
-    return False
-
-
-def show_error_window(message: str):
-    """Ventana mínima de error en vez de fallar en silencio."""
-    webview.create_window(
-        "WiFi Monitor — Error",
-        html="<body style='font-family:sans-serif;padding:2rem;'>"
-             "<h2>No se pudo iniciar WiFi Monitor</h2>"
-             f"<p>{message}</p>"
-             "</body>",
-        width=480, height=260, resizable=False,
-    )
-    webview.start()
+def run(cmd: list, **kwargs):
+    print(f"   $ {' '.join(str(c) for c in cmd)}")
+    subprocess.run(cmd, check=True, **kwargs)
 
 
 def main():
-    # Streamlit corre en un hilo daemon: si el proceso principal
-    # termina (p. ej. el usuario cierra la ventana), el hilo no
-    # impide que el programa salga.
-    server_thread = threading.Thread(
-        target=run_streamlit_in_thread,
-        daemon=True,
-        name="streamlit-server",
-    )
-    server_thread.start()
+    print()
+    print("╔══════════════════════════════════════════════╗")
+    print("║   WiFi Monitor — Build Windows (PyInstaller) ║")
+    print("╚══════════════════════════════════════════════╝")
+    print()
 
-    server_ok = wait_for_server(timeout=40)
+    # 1. Instalar dependencias Python
+    print("▶ Instalando dependencias Python...")
+    run([sys.executable, "-m", "pip", "install", "--quiet", "--upgrade",
+         "pyinstaller", "streamlit", "plotly", "pandas", "psutil", "speedtest-cli",
+         "pillow", "pywebview"])
 
-    if not server_ok:
-        detail = (
-            f"Detalle: {_server_error}" if _server_error is not None
-            else "El servidor interno tardó demasiado en responder."
-        )
-        show_error_window(detail + " Cierra esta ventana e intenta abrir la app de nuevo.")
-        return
+    # 1b. Generar ícono si no existe
+    icon_path = Path("wifi_monitor.ico")
+    if icon_path.exists():
+        print("   ✅ Usando wifi_monitor.ico existente")
+    else:
+        print("▶ wifi_monitor.ico no encontrado, generando placeholder...")
+        from PIL import Image, ImageDraw
+        img = Image.new("RGBA", (256, 256), (13, 33, 55, 255))
+        draw = ImageDraw.Draw(img)
+        draw.ellipse((53, 53, 203, 203), outline=(126, 179, 255, 255), width=10)
+        draw.ellipse((90, 90, 166, 166), outline=(126, 179, 255, 255), width=8)
+        draw.ellipse((115, 115, 141, 141), fill=(126, 179, 255, 255))
+        img.save(icon_path, sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+        print("   ✅ Ícono placeholder generado: wifi_monitor.ico")
 
-    # Ventana nativa apuntando al servidor local de Streamlit
-    window = webview.create_window(
-        "WiFi Monitor",
-        url=URL,
-        width=1200,
-        height=800,
-        min_size=(900, 600),
-    )
+    # 2. Limpiar builds anteriores
+    for d in ("dist", "build", f"{APP_NAME}.spec"):
+        p = Path(d)
+        if p.exists():
+            if p.is_dir():
+                shutil.rmtree(p)
+            else:
+                p.unlink()
+    print("   ✅ Limpieza completada")
 
-    try:
-        # gui="edgechromium" usa WebView2 en Windows (ya viene en Win10/11 modernos)
-        webview.start(gui="edgechromium" if platform.system() == "Windows" else None)
-    finally:
-        # Streamlit corre en hilo daemon: al salir el proceso principal
-        # (aquí), el hilo se termina automáticamente con el programa.
-        pass
+    # 3. Compilar con PyInstaller
+    print()
+    print("▶ Compilando con PyInstaller (esto tarda unos minutos)...")
+
+    pyinstaller_args = [
+        sys.executable, "-m", "PyInstaller",
+        "--noconfirm",
+        "--onedir",              # carpeta, no onefile: más rápido de arrancar
+        "--windowed",            # sin ventana de consola
+        "--name", APP_NAME,
+        "--icon", "wifi_monitor.ico",
+        "--add-data", "wifi_monitor.py;.",   # Windows usa ; como separador
+        "--hidden-import", "streamlit",
+        "--hidden-import", "streamlit.web.cli",
+        "--hidden-import", "streamlit.web.bootstrap",
+        "--hidden-import", "streamlit.runtime.scriptrunner",
+        "--hidden-import", "streamlit.runtime.caching",
+        "--hidden-import", "altair",
+        "--hidden-import", "plotly",
+        "--hidden-import", "pandas",
+        "--hidden-import", "psutil",
+        "--hidden-import", "packaging",
+        "--hidden-import", "webview",
+        "--hidden-import", "webview.platforms.edgechromium",
+        "--collect-all", "streamlit",
+        "--collect-all", "altair",
+        "--collect-all", "plotly",
+        "--collect-all", "webview",
+        "launcher.py",
+    ]
+    run(pyinstaller_args)
+
+    dist_path = Path("dist") / APP_NAME
+    if dist_path.exists():
+        print()
+        print(f"   ✅ Bundle generado en: {dist_path}")
+        size_mb = sum(f.stat().st_size for f in dist_path.rglob("*") if f.is_file()) / 1e6
+        print(f"   📏 Tamaño total: {size_mb:.1f} MB")
+        print()
+        print("─" * 50)
+        print("Siguiente paso: compilar el instalador con Inno Setup")
+        print("  iscc WiFiMonitor-Setup.iss")
+        print("─" * 50)
+    else:
+        print("❌ ERROR: PyInstaller no generó la carpeta dist/")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

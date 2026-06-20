@@ -25,13 +25,14 @@ sudo apt-get install -y --no-install-recommends \
     python3 python3-pip python3-venv \
     libfuse2 wget patchelf \
     wireless-tools iproute2 net-tools arp-scan nmap \
-    iputils-ping libnotify-bin
+    iputils-ping libnotify-bin \
+    gir1.2-gtk-3.0 gir1.2-webkit2-4.1 python3-gi python3-gi-cairo
 
 # ── 2. PyInstaller + dependencias Python ─────────────────────────
 echo ""
 echo "▶ Instalando dependencias Python..."
 pip install --quiet --upgrade \
-    pyinstaller streamlit plotly pandas psutil speedtest-cli
+    pyinstaller streamlit plotly pandas psutil speedtest-cli pywebview PyGObject
 
 # ── 3. Compilar con PyInstaller ──────────────────────────────────
 echo ""
@@ -50,8 +51,11 @@ pyinstaller \
     --hidden-import "plotly" \
     --hidden-import "pandas" \
     --hidden-import "psutil" \
+    --hidden-import "webview" \
+    --hidden-import "webview.platforms.gtk" \
     --collect-all streamlit \
     --collect-all altair \
+    --collect-all webview \
     launcher.py
 
 echo "   ✅ Binario generado en dist/${APP_NAME}/"

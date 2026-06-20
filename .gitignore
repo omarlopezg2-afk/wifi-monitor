@@ -1,1 +1,43 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
 
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Inno Setup
+installer_output/
+
+# Linux AppImage build
+*.AppDir/
+appimagetool-x86_64.AppImage
+
+# macOS build
+*.iconset/
+wifi_monitor_base.png
+
+# Íconos generados como placeholder (se regeneran en cada build)
+wifi_monitor.ico
+wifi_monitor.icns
+wifi_monitor.png
+
+# Certificados de firma — NUNCA deben subirse al repo
+*.pfx
+*.p12
+*.cer
+
+# Empaquetado MSIX
+*.msix
+*.msixbundle
+*.msixupload
+AppPackages/
+
+# Entornos / editores
+.venv/
+venv/
+.vscode/
+.idea/

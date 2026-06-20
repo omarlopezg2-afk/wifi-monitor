@@ -12,12 +12,19 @@ en Linux, Windows y macOS. El usuario final **nunca ve una terminal**.
            ↓
       launcher.py           ← proceso invisible
            ↓
-  streamlit run wifi_monitor.py  (background)
+  streamlit run wifi_monitor.py  (background, localhost:8501)
            ↓
-  Abre browser → localhost:8501
+  Ventana nativa (pywebview) carga localhost:8501
            ↓
-  Usuario ve la app como una web
+  Usuario ve la app como un programa de escritorio normal
+  (sin navegador, sin barra de direcciones, con ícono propio)
 ```
+
+> **Nota:** hasta la v2.x, el launcher abría el navegador del sistema
+> (`webbrowser.open`). Desde la conversión a ventana nativa, se usa
+> `pywebview` para que la app se vea y se sienta como software de
+> escritorio real — esto es importante para distribución en
+> Microsoft Store (ver sección al final de este documento).
 
 ---
 
@@ -178,5 +185,42 @@ Normal para ejecutables sin firma. El usuario puede hacer clic en
 Para distribución seria: adquirir un Code Signing Certificate (~$50-300/año).
 
 ### "Streamlit tarda en arrancar la primera vez"
-Es normal. El launcher espera hasta 40 segundos antes de abrir el browser.
+Es normal. El launcher espera hasta 40 segundos antes de abrir la ventana.
 En hardware lento puede tardar hasta 15-20 segundos la primera vez.
+
+### "pywebview no abre ventana / pantalla en blanco"
+- **Windows:** requiere WebView2 Runtime (viene preinstalado en Windows 10/11
+  actualizados; si falta, se descarga desde Microsoft).
+- **Linux:** requiere GTK3 + WebKit2GTK instalados a nivel de sistema
+  (`gir1.2-webkit2-4.1`, ya incluido en `build_appimage.sh`).
+- **macOS:** usa WebKit nativo vía `pyobjc`, no requiere instalación aparte.
+
+---
+
+## 🏪 Distribución en Microsoft Store (MSIX)
+
+Plan para publicar WiFi Monitor en la Microsoft Store sin pagar certificado
+de firma de código:
+
+1. **No se reescribe la app.** Se usa el instalador `WiFiMonitor-Setup.exe`
+   (Inno Setup) ya existente como base.
+2. **Captura con MSIX Packaging Tool** (gratis, en la Store): se instala en
+   una VM Windows limpia, se elige "Crear paquete de aplicación", se apunta
+   al `WiFiMonitor-Setup.exe` y se deja correr la instalación normal.
+   Se marca `WiFiMonitor.exe` como ejecutable de entrada.
+3. **Revisar el reporte de procesos/servicios** que genera la herramienta
+   antes de finalizar — el proceso de Streamlit en background puede
+   aparecer ahí; confirmar que quede correctamente clasificado.
+4. **Validar con el Windows App Certification Kit (WACK)** sobre el `.msix`
+   resultante antes de subirlo, para detectar problemas antes que el
+   equipo de certificación de Microsoft.
+5. **Firma:** no se necesita comprar certificado de una CA — la Microsoft
+   Store re-firma automáticamente el paquete con un certificado propio
+   tras pasar la certificación.
+6. **Publicar en Partner Center** (storedeveloper.microsoft.com, cuenta
+   gratis): subir el `.msixupload`, completar ficha de la app (ícono
+   mínimo 300×300, descripción, capturas de pantalla).
+
+> La conversión a ventana nativa (pywebview) descrita arriba se hizo
+> específicamente para que la app no dependa del navegador del usuario
+> al pasar por certificación de Microsoft.

@@ -15,11 +15,10 @@ name: Build Multiplataforma
 on:
   push:
     tags:
-      - "v*"          # Dispara al crear un tag como v2.0, v2.1, etc.
-  workflow_dispatch:  # Permite disparar manualmente desde la UI
+      - "v*" # Dispara al crear un tag como v2.0, v2.1, etc.
+  workflow_dispatch: # Permite disparar manualmente desde la UI
 
 jobs:
-
   # ─────────────────────────────────────────────
   #  LINUX — AppImage
   # ─────────────────────────────────────────────
@@ -233,10 +232,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: macos-14     # Apple Silicon
+          - runner: macos-14 # Apple Silicon
             arch: arm64
-          - runner: macos-13     # Intel
-            arch: x86_64
+          # - runner: macos-13     # Intel
+          #   arch: x86_64
 
     steps:
       - name: Checkout

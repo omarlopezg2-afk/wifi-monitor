@@ -48,7 +48,8 @@ fi
 # ── 2. Instalar dependencias ─────────────────────────────────────
 echo "▶ Instalando dependencias Python..."
 pip3 install --quiet --upgrade \
-    pyinstaller streamlit plotly pandas psutil speedtest-cli pillow
+    pyinstaller streamlit plotly pandas psutil speedtest-cli pillow \
+    pywebview "pyobjc-core" "pyobjc-framework-Cocoa" "pyobjc-framework-WebKit"
 
 if ! command -v create-dmg &> /dev/null; then
     echo "▶ Instalando create-dmg..."
@@ -111,8 +112,11 @@ pyinstaller \
     --hidden-import "plotly" \
     --hidden-import "pandas" \
     --hidden-import "psutil" \
+    --hidden-import "webview" \
+    --hidden-import "webview.platforms.cocoa" \
     --collect-all streamlit \
     --collect-all altair \
+    --collect-all webview \
     launcher.py
 
 echo "   ✅ .app generado en: ${APP_BUNDLE}"

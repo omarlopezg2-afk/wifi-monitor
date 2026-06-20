@@ -26,13 +26,22 @@ sudo apt-get install -y --no-install-recommends \
     libfuse2 wget patchelf \
     wireless-tools iproute2 net-tools arp-scan nmap \
     iputils-ping libnotify-bin \
-    gir1.2-gtk-3.0 gir1.2-webkit2-4.1 python3-gi python3-gi-cairo
+    gir1.2-gtk-3.0 gir1.2-webkit2-4.1 python3-gi python3-gi-cairo \
+    libgirepository1.0-dev gcc libcairo2-dev pkg-config python3-dev
 
 # ── 2. PyInstaller + dependencias Python ─────────────────────────
 echo ""
 echo "▶ Instalando dependencias Python..."
+# NOTA: PyGObject se fija a <3.51 a propósito. Desde la versión 3.51
+# PyGObject requiere la librería girepository-2.0, cuyo paquete -dev
+# todavía no existe en los repos de Ubuntu 22.04/24.04 (solo en 24.10+).
+# Con el pin <3.51, pip compila PyGObject usando girepository-1.0,
+# cubierto por libgirepository1.0-dev instalado arriba. Esto es
+# necesario incluso si el runner ya trae python3-gi por apt, porque
+# actions/setup-python usa un Python aislado del sistema que no ve
+# los paquetes de /usr/lib/python3/dist-packages.
 pip install --quiet --upgrade \
-    pyinstaller streamlit plotly pandas psutil speedtest-cli pywebview PyGObject
+    pyinstaller streamlit plotly pandas psutil speedtest-cli pywebview "PyGObject<3.51"
 
 # ── 3. Compilar con PyInstaller ──────────────────────────────────
 echo ""

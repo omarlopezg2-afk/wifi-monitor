@@ -1,17 +1,28 @@
 """
 WiFi Monitor v2 — Launcher
-Inicia Streamlit en background y lo muestra en una ventana nativa
-(pywebview) en vez de abrir el navegador del sistema.
+Inicia Streamlit en un hilo dentro del mismo proceso (en vez de un
+subproceso aparte) y lo muestra en una ventana nativa (pywebview)
+en vez de abrir el navegador del sistema.
 Compatible con Linux, Windows y macOS.
+
+IMPORTANTE — por qué Streamlit corre en un hilo y no en subprocess:
+Dentro de un ejecutable empaquetado con PyInstaller, sys.executable
+apunta al propio binario de la app, no a un intérprete de Python
+normal. Lanzar `subprocess.Popen([sys.executable, "-m", "streamlit", ...])`
+en ese contexto relanza el ejecutable completo desde cero (vuelve a
+ejecutar este mismo launcher), que a su vez intenta relanzarse otra
+vez, y así sucesivamente: una bomba fork recursiva que agota CPU y
+RAM en segundos. Por eso Streamlit se arranca aquí con su API en
+proceso (streamlit.web.bootstrap.run) dentro de un hilo, sin crear
+ningún subproceso nuevo.
 """
 
-import subprocess
 import sys
 import time
-import os
-import signal
+import threading
 import platform
 from pathlib import Path
+from typing import Optional
 
 import webview
 
@@ -22,32 +33,42 @@ URL  = f"http://localhost:{PORT}"
 BASE = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
 APP  = BASE / "wifi_monitor.py"
 
+_server_error: Optional[Exception] = None
 
-def find_streamlit():
-    """Devuelve el ejecutable de streamlit disponible en el sistema."""
-    # Dentro del bundle PyInstaller, streamlit queda como módulo
-    streamlit_run = [sys.executable, "-m", "streamlit"]
+
+def run_streamlit_in_thread():
+    """Arranca el servidor Streamlit en el hilo actual (bloqueante)."""
+    global _server_error
     try:
-        subprocess.run(
-            streamlit_run + ["--version"],
-            capture_output=True, check=True
-        )
-        return streamlit_run
-    except Exception:
-        pass
-    # Búsqueda en PATH
-    import shutil
-    st = shutil.which("streamlit")
-    if st:
-        return [st]
-    raise RuntimeError("streamlit no encontrado. Ejecuta: pip install streamlit")
+        import streamlit.web.bootstrap as bootstrap
+
+        # Streamlit intenta instalar manejadores de señal (SIGTERM,
+        # SIGINT...) al arrancar, pero eso solo funciona en el hilo
+        # principal del intérprete. Como este servidor corre en un
+        # hilo secundario (pywebview necesita el hilo principal para
+        # la ventana), desactivamos ese paso: nosotros controlamos el
+        # ciclo de vida completo del proceso desde main().
+        bootstrap._set_up_signal_handler = lambda server: None
+
+        flag_options = {
+            "server.port": PORT,
+            "server.headless": True,
+            "server.enableCORS": False,
+            "server.enableXsrfProtection": False,
+            "browser.gatherUsageStats": False,
+        }
+        bootstrap.run(str(APP), False, [], flag_options)
+    except Exception as exc:  # noqa: BLE001 - queremos capturar cualquier fallo
+        _server_error = exc
 
 
-def wait_for_server(timeout: int = 30) -> bool:
+def wait_for_server(timeout: int = 40) -> bool:
     """Espera hasta que el servidor Streamlit responda."""
     import urllib.request
     deadline = time.time() + timeout
     while time.time() < deadline:
+        if _server_error is not None:
+            return False
         try:
             urllib.request.urlopen(URL, timeout=1)
             return True
@@ -56,52 +77,38 @@ def wait_for_server(timeout: int = 30) -> bool:
     return False
 
 
-def stop_streamlit(proc: subprocess.Popen):
-    """Termina el proceso de Streamlit de forma ordenada."""
-    if proc.poll() is not None:
-        return  # ya terminó
-    try:
-        proc.terminate()
-        proc.wait(timeout=5)
-    except Exception:
-        proc.kill()
+def show_error_window(message: str):
+    """Ventana mínima de error en vez de fallar en silencio."""
+    webview.create_window(
+        "WiFi Monitor — Error",
+        html="<body style='font-family:sans-serif;padding:2rem;'>"
+             "<h2>No se pudo iniciar WiFi Monitor</h2>"
+             f"<p>{message}</p>"
+             "</body>",
+        width=480, height=260, resizable=False,
+    )
+    webview.start()
 
 
 def main():
-    streamlit_cmd = find_streamlit()
+    # Streamlit corre en un hilo daemon: si el proceso principal
+    # termina (p. ej. el usuario cierra la ventana), el hilo no
+    # impide que el programa salga.
+    server_thread = threading.Thread(
+        target=run_streamlit_in_thread,
+        daemon=True,
+        name="streamlit-server",
+    )
+    server_thread.start()
 
-    cmd = streamlit_cmd + [
-        "run", str(APP),
-        "--server.port", str(PORT),
-        "--server.headless", "true",
-        "--server.enableCORS", "false",
-        "--server.enableXsrfProtection", "false",
-        "--browser.gatherUsageStats", "false",
-    ]
-
-    # Ocultar ventana de consola en Windows
-    kwargs = {}
-    if platform.system() == "Windows":
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-
-    proc = subprocess.Popen(cmd, **kwargs)
-
-    # Esperar a que el servidor arranque ANTES de abrir la ventana
     server_ok = wait_for_server(timeout=40)
 
     if not server_ok:
-        stop_streamlit(proc)
-        # Ventana mínima de error en vez de fallar en silencio
-        window = webview.create_window(
-            "WiFi Monitor — Error",
-            html="<body style='font-family:sans-serif;padding:2rem;'>"
-                 "<h2>No se pudo iniciar WiFi Monitor</h2>"
-                 "<p>El servidor interno tardó demasiado en responder. "
-                 "Cierra esta ventana e intenta abrir la app de nuevo.</p>"
-                 "</body>",
-            width=480, height=260, resizable=False,
+        detail = (
+            f"Detalle: {_server_error}" if _server_error is not None
+            else "El servidor interno tardó demasiado en responder."
         )
-        webview.start()
+        show_error_window(detail + " Cierra esta ventana e intenta abrir la app de nuevo.")
         return
 
     # Ventana nativa apuntando al servidor local de Streamlit
@@ -113,15 +120,13 @@ def main():
         min_size=(900, 600),
     )
 
-    # Al cerrar la ventana (closing event), terminar Streamlit
-    window.events.closing += lambda: stop_streamlit(proc)
-
     try:
         # gui="edgechromium" usa WebView2 en Windows (ya viene en Win10/11 modernos)
         webview.start(gui="edgechromium" if platform.system() == "Windows" else None)
     finally:
-        # Red de seguridad: asegurar que Streamlit no quede huérfano
-        stop_streamlit(proc)
+        # Streamlit corre en hilo daemon: al salir el proceso principal
+        # (aquí), el hilo se termina automáticamente con el programa.
+        pass
 
 
 if __name__ == "__main__":

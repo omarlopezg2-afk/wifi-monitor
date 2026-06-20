@@ -55,6 +55,7 @@ pyinstaller \
     --add-data "wifi_monitor.py:." \
     --hidden-import "streamlit" \
     --hidden-import "streamlit.web.cli" \
+    --hidden-import "streamlit.web.bootstrap" \
     --hidden-import "streamlit.runtime.scriptrunner" \
     --hidden-import "altair" \
     --hidden-import "plotly" \

@@ -37,7 +37,8 @@ def main():
     # 1. Instalar dependencias Python
     print("▶ Instalando dependencias Python...")
     run([sys.executable, "-m", "pip", "install", "--quiet", "--upgrade",
-         "pyinstaller", "streamlit", "plotly", "pandas", "psutil", "speedtest-cli", "pillow"])
+         "pyinstaller", "streamlit", "plotly", "pandas", "psutil", "speedtest-cli",
+         "pillow", "pywebview", "pythonnet"])
 
     # 1b. Generar ícono si no existe
     icon_path = Path("wifi_monitor.ico")
@@ -85,9 +86,13 @@ def main():
         "--hidden-import", "pandas",
         "--hidden-import", "psutil",
         "--hidden-import", "packaging",
+        "--hidden-import", "webview",
+        "--hidden-import", "webview.platforms.edgechromium",
+        "--hidden-import", "clr",
         "--collect-all", "streamlit",
         "--collect-all", "altair",
         "--collect-all", "plotly",
+        "--collect-all", "webview",
         "launcher.py",
     ]
     run(pyinstaller_args)

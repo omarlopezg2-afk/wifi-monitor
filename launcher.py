@@ -66,6 +66,22 @@ def run_streamlit_in_thread():
             # server.port; esto solo corrige el texto impreso para
             # que no confunda.
             "browser.serverPort": PORT,
+            # CRÍTICO dentro de un binario empaquetado con PyInstaller:
+            # Streamlit decide automáticamente si está en "development
+            # mode" mirando si la ruta de streamlit/__init__.py contiene
+            # "site-packages" o "dist-packages". En un bundle de
+            # PyInstaller las librerías viven bajo _internal/streamlit/...,
+            # sin esos substrings en la ruta, así que Streamlit cree que
+            # corre en modo desarrollo. En ese modo,
+            # _get_browser_address_bar_port() ignora browser.serverPort
+            # por completo y devuelve un puerto fijo de desarrollo
+            # (3000), aunque el servidor real siga escuchando en
+            # server.port (8501). Resultado: el "Local URL" impreso y la
+            # URL que usa pywebview apuntan a un puerto donde no hay
+            # nada escuchando -> ERR_CONNECTION_REFUSED / timeout.
+            # Forzar este flag a False hace que el puerto mostrado y
+            # usado sea siempre el real (server.port).
+            "global.developmentMode": False,
         }
         bootstrap.run(str(APP), False, [], flag_options)
     except Exception as exc:  # noqa: BLE001 - queremos capturar cualquier fallo

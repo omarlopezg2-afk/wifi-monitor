@@ -15,9 +15,14 @@
 #    donde se compila (arm64 en Apple Silicon, x86_64 en Intel).
 #    NO es universal2 — varias dependencias (Pillow, numpy, etc.) no
 #    distribuyen wheels "fat" completos, lo que rompe PyInstaller con
-#    IncompatibleBinaryArchError. Si necesitas soporte para ambas
-#    arquitecturas, compila dos veces: una en runner macos-14 (arm64)
-#    y otra en macos-13 (Intel x86_64), y distribuye ambos .dmg.
+#    IncompatibleBinaryArchError.
+#    Desde la v3.x el CI solo compila en macos-14 (Apple Silicon / arm64).
+#    El soporte para Intel (x86_64) se retiró: el runner macos-13 que se
+#    usaba para esa arquitectura fue dado de baja por GitHub en diciembre
+#    de 2025, y Apple ya no da soporte a x86_64. Si se necesitara igual,
+#    este mismo script sigue funcionando en una Mac Intel local (genera
+#    "...-x86_64.dmg" automáticamente vía `uname -m`), solo que ya no
+#    hay runner hospedado por GitHub para automatizarlo.
 #
 #  NOTA SOBRE FIRMA (notarización):
 #    Sin firma Apple, macOS Gatekeeper bloqueará la app la primera vez.

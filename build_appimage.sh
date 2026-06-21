@@ -46,27 +46,16 @@ pip install --quiet --upgrade \
 # ── 3. Compilar con PyInstaller ──────────────────────────────────
 echo ""
 echo "▶ Compilando binario con PyInstaller..."
-
-pyinstaller \
-    --noconfirm \
-    --onedir \
-    --windowed \
-    --name "${APP_NAME}" \
-    --add-data "wifi_monitor.py:." \
-    --hidden-import "streamlit" \
-    --hidden-import "streamlit.web.cli" \
-    --hidden-import "streamlit.web.bootstrap" \
-    --hidden-import "streamlit.runtime.scriptrunner" \
-    --hidden-import "altair" \
-    --hidden-import "plotly" \
-    --hidden-import "pandas" \
-    --hidden-import "psutil" \
-    --hidden-import "webview" \
-    --hidden-import "webview.platforms.gtk" \
-    --collect-all streamlit \
-    --collect-all altair \
-    --collect-all webview \
-    launcher.py
+# NOTA: usamos WiFiMonitor.linux.spec en vez de pasar flags directo
+# por línea de comandos. El spec file excluye del bundle las
+# librerías de sistema no-Python (libstdc++, libgcc_s, glib, gtk,
+# webkit2gtk, etc.) vía exclude_system_libraries(), para que el
+# binario siempre use las librerías del sistema operativo donde se
+# ejecuta en vez de las del runner de CI (ubuntu-22.04). Sin esto,
+# en distros más nuevas que el runner (ej. Ubuntu 24.04+) aparecen
+# errores de símbolo indefinido como CXXABI_1.3.15 not found o
+# g_once_init_enter_pointer al intentar abrir la ventana nativa.
+pyinstaller --noconfirm WiFiMonitor.linux.spec
 
 echo "   ✅ Binario generado en dist/${APP_NAME}/"
 
@@ -113,11 +102,33 @@ PYEOF
 fi
 
 # ── 5. AppRun ────────────────────────────────────────────────────
+# NOTA: desde que el .spec excluye las librerías de sistema del
+# bundle (exclude_system_libraries), el AppImage depende de que el
+# sistema del usuario tenga GTK3 + WebKit2GTK 4.1 instalados. AppRun
+# verifica esto primero y muestra un mensaje claro si falta algo,
+# en vez de dejar que el binario truene con un traceback de Python.
 cat > "${APPDIR}/AppRun" << 'EOF'
 #!/bin/bash
 SELF="$(readlink -f "$0")"
 HERE="${SELF%/*}"
 export PATH="${HERE}/usr/bin:${PATH}"
+
+# Verificar que las librerías del sistema necesarias existen antes
+# de arrancar. ldconfig -p busca en la caché de librerías del sistema.
+MISSING=""
+ldconfig -p 2>/dev/null | grep -q "libwebkit2gtk-4.1.so.0" || MISSING="${MISSING}  - libwebkit2gtk-4.1-0 (o libwebkit2gtk-4.0-37)\n"
+ldconfig -p 2>/dev/null | grep -q "libgtk-3.so.0" || MISSING="${MISSING}  - libgtk-3-0\n"
+
+if [ -n "$MISSING" ]; then
+    echo ""
+    echo "❌ Faltan librerías del sistema necesarias para la ventana de WiFi Monitor:"
+    echo -e "$MISSING"
+    echo "Instálalas con:"
+    echo "  sudo apt update && sudo apt install -y gir1.2-webkit2-4.1 gir1.2-gtk-3.0"
+    echo ""
+    exit 1
+fi
+
 exec "${HERE}/usr/bin/WiFiMonitor" "$@"
 EOF
 chmod +x "${APPDIR}/AppRun"

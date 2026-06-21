@@ -102,6 +102,17 @@ echo "▶ Compilando .app con PyInstaller..."
 
 rm -rf dist build "${APP_NAME}.spec"
 
+# NOTA SOBRE COMPATIBILIDAD HACIA ATRÁS:
+# Sin esto, los binarios que PyInstaller recolecta (Python shared
+# library, extensiones de terceros) quedan compilados contra la
+# versión "nativa" de macOS de la máquina donde se corre este script
+# (en el CI, macos-14 = macOS Sonoma). Si un usuario con una versión
+# de macOS más vieja que esa intenta correr la app, puede fallar con
+# errores de framework/símbolo no encontrado.
+# Fijamos un mínimo razonable explícito (macOS 12 Monterey) en vez
+# de heredar implícitamente lo que traiga el runner del CI.
+export MACOSX_DEPLOYMENT_TARGET="12.0"
+
 pyinstaller \
     --noconfirm \
     --onedir \

@@ -27,23 +27,48 @@
 #    pyinstaller --noconfirm WiFiMonitor.linux.spec
 # ─────────────────────────────────────────────────────────────────
 
+from PyInstaller.utils.hooks import collect_all, copy_metadata
+
+# ── Replicar --collect-all de la línea de comandos original ──────
+# El spec file no hereda --collect-all automáticamente; hay que
+# llamar collect_all() por cada paquete y fusionar sus resultados
+# en datas/binaries/hiddenimports. Sin esto, faltan archivos
+# estáticos de Streamlit/Altair (HTML, JS, JSON) y, sobre todo, la
+# metadata de distribución (dist-info), que Streamlit consulta en
+# runtime vía importlib.metadata.version("streamlit"). Si falta,
+# la app falla con "No package metadata was found for streamlit".
+datas = [('wifi_monitor.py', '.')]
+binaries = []
+hiddenimports = [
+    'streamlit.web.cli',
+    'streamlit.web.bootstrap',
+    'streamlit.runtime.scriptrunner',
+    'webview.platforms.gtk',
+]
+
+for pkg in ('streamlit', 'altair', 'webview'):
+    pkg_datas, pkg_binaries, pkg_hiddenimports = collect_all(pkg)
+    datas += pkg_datas
+    binaries += pkg_binaries
+    hiddenimports += pkg_hiddenimports
+
+# copy_metadata explícito como red de seguridad adicional: algunos
+# paquetes (streamlit, pandas, plotly, psutil) o sus dependencias
+# transitivas consultan su propia metadata en tiempo de ejecución
+# (version-checks, plugin discovery), aunque no se haya detectado
+# en el análisis estático de imports.
+for pkg in ('streamlit', 'pandas', 'plotly', 'psutil', 'altair', 'pywebview'):
+    try:
+        datas += copy_metadata(pkg)
+    except Exception:
+        pass  # si el paquete no tiene dist-info instalable, lo ignoramos
+
 a = Analysis(
     ['launcher.py'],
     pathex=[],
-    binaries=[],
-    datas=[('wifi_monitor.py', '.')],
-    hiddenimports=[
-        'streamlit',
-        'streamlit.web.cli',
-        'streamlit.web.bootstrap',
-        'streamlit.runtime.scriptrunner',
-        'altair',
-        'plotly',
-        'pandas',
-        'psutil',
-        'webview',
-        'webview.platforms.gtk',
-    ],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

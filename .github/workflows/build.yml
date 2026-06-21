@@ -228,15 +228,13 @@ jobs:
   #  macOS — DMG
   # ─────────────────────────────────────────────
   build-mac:
-    name: 🍎 macOS DMG (${{ matrix.arch }})
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      matrix:
-        include:
-          - runner: macos-14     # Apple Silicon
-            arch: arm64
-          - runner: macos-13     # Intel
-            arch: x86_64
+    name: 🍎 macOS DMG (Apple Silicon)
+    # Nota: se eliminó el build para Intel (x86_64). El runner macos-13
+    # que se usaba para esa arquitectura fue retirado por GitHub el
+    # 8 de diciembre de 2025, lo cual dejaba este job colgado sin
+    # poder asignarse un runner. Apple además ya no da soporte a
+    # x86_64, así que se deja únicamente Apple Silicon (arm64).
+    runs-on: macos-14
 
     steps:
       - name: Checkout
@@ -260,7 +258,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mac-dmg-${{ matrix.arch }}
+          name: mac-dmg
           path: WiFiMonitor-*.dmg
 
   # ─────────────────────────────────────────────
@@ -296,7 +294,7 @@ jobs:
             |------------|---------|---------------|
             | 🐧 Linux   | `.AppImage` | `chmod +x WiFiMonitor*.AppImage && ./WiFiMonitor*.AppImage` |
             | 🪟 Windows | `WiFiMonitor-Setup.exe` | Doble clic → Siguiente → Instalar |
-            | 🍎 macOS (Apple Silicon: M1/M2/M3/M4) | `*-macOS-arm64.dmg` | Arrastrar a Aplicaciones |
-            | 🍎 macOS (Intel) | `*-macOS-x86_64.dmg` | Arrastrar a Aplicaciones |
+            | 🍎 macOS (Apple Silicon: M1/M2/M3/M4) | `*.dmg` | Arrastrar a Aplicaciones |
 
             > **macOS**: Si Gatekeeper bloquea la app, ir a Ajustes → Privacidad y seguridad → Abrir igualmente.
+            > Esta versión es solo para Mac con Apple Silicon (M1 o más nuevo). Soporte para Mac Intel discontinuado.

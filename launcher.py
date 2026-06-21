@@ -83,6 +83,21 @@ def run_streamlit_in_thread():
             # usado sea siempre el real (server.port).
             "global.developmentMode": False,
         }
+        # CRÍTICO: bootstrap.run() NO aplica flag_options al estado
+        # global de config. Esa aplicación (load_config_options)
+        # solo ocurre en el flujo normal de "streamlit run" vía
+        # cli.py, que launcher.py no usa (porque necesita correr
+        # Streamlit en un hilo dentro del mismo proceso, no como
+        # subproceso vía CLI). Sin esta llamada explícita, todo
+        # flag_options anterior queda ignorado: el servidor puede
+        # acabar escuchando en server.port igualmente (por otra vía
+        # interna), pero global.developmentMode, browser.serverPort,
+        # etc. quedan en sus valores automáticos/por defecto. Esto
+        # es lo que causaba "Local URL: http://localhost:3000" con
+        # el servidor real en 8501: developmentMode nunca se forzaba
+        # a False de verdad, solo parecía que sí al inspeccionarlo
+        # justo después de definir el diccionario.
+        bootstrap.load_config_options(flag_options)
         bootstrap.run(str(APP), False, [], flag_options)
     except Exception as exc:  # noqa: BLE001 - queremos capturar cualquier fallo
         _server_error = exc

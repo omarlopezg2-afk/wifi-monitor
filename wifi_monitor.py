@@ -81,7 +81,21 @@ st.markdown("""
     .status-warn { color: #f59e0b; font-weight: 700; }
     .status-bad  { color: #ef4444; font-weight: 700; }
 
-    div[data-testid="stMetric"] { background: #111827; border-radius: 10px; padding: 12px; }
+    div[data-testid="stMetric"] {
+        background: #111827;
+        border-radius: 10px;
+        padding: 12px;
+    }
+    div[data-testid="stMetric"] label,
+    div[data-testid="stMetric"] [data-testid="stMetricLabel"] {
+        color: #7eb3ff !important;
+    }
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] {
+        color: #ffffff !important;
+    }
+    div[data-testid="stMetric"] [data-testid="stMetricDelta"] {
+        color: #d1d5db !important;
+    }
     .stButton>button { width: 100%; border-radius: 8px; }
     footer { visibility: hidden; }
 </style>

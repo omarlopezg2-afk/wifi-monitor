@@ -21,6 +21,7 @@ import sys
 import time
 import threading
 import platform
+import webbrowser
 from pathlib import Path
 from typing import Optional
 
@@ -56,6 +57,15 @@ def run_streamlit_in_thread():
             "server.enableCORS": False,
             "server.enableXsrfProtection": False,
             "browser.gatherUsageStats": False,
+            # Forzado explícito: si el usuario tiene un
+            # ~/.streamlit/config.toml local con un valor distinto
+            # para browser.serverPort, el mensaje impreso por
+            # Streamlit ("Local URL: http://localhost:XXXX") puede
+            # no coincidir con el puerto real donde escucha el
+            # servidor (server.port). El bind real siempre respeta
+            # server.port; esto solo corrige el texto impreso para
+            # que no confunda.
+            "browser.serverPort": PORT,
         }
         bootstrap.run(str(APP), False, [], flag_options)
     except Exception as exc:  # noqa: BLE001 - queremos capturar cualquier fallo
@@ -90,6 +100,37 @@ def show_error_window(message: str):
     webview.start()
 
 
+def run_in_browser_fallback():
+    """
+    Modo de respaldo: abre el navegador del sistema apuntando al
+    servidor Streamlit, y mantiene el proceso vivo (el servidor
+    corre en un hilo daemon; sin esto el proceso terminaría de
+    inmediato y el navegador encontraría el puerto ya cerrado,
+    como pasó al fallar la ventana nativa por una librería gráfica
+    del sistema incompatible — GTK/WebKit en Linux, WebView2 en
+    Windows, WebKit/Cocoa en macOS).
+    """
+    print()
+    print("⚠️  No se pudo abrir la ventana nativa de la app.")
+    print("   Abriendo WiFi Monitor en el navegador en su lugar...")
+    print(f"   URL: {URL}")
+    print("   (Cierra esta terminal o presiona Ctrl+C para salir)")
+    print()
+    try:
+        webbrowser.open(URL)
+    except Exception:
+        pass  # el usuario puede abrir la URL a mano si esto falla
+
+    # Mantener el proceso principal vivo mientras el hilo daemon de
+    # Streamlit sigue sirviendo la app. Sin este loop, main() (y por
+    # tanto el proceso) terminaría de inmediato.
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+
+
 def main():
     # Streamlit corre en un hilo daemon: si el proceso principal
     # termina (p. ej. el usuario cierra la ventana), el hilo no
@@ -108,25 +149,34 @@ def main():
             f"Detalle: {_server_error}" if _server_error is not None
             else "El servidor interno tardó demasiado en responder."
         )
-        show_error_window(detail + " Cierra esta ventana e intenta abrir la app de nuevo.")
+        # Si ni siquiera el servidor Streamlit pudo arrancar, no hay
+        # nada que mostrar en el navegador tampoco: aquí sí mostramos
+        # la ventana de error (o, si esa también falla, el except de
+        # abajo ya lo cubre).
+        try:
+            show_error_window(detail + " Cierra esta ventana e intenta abrir la app de nuevo.")
+        except Exception:
+            print(f"❌ No se pudo iniciar WiFi Monitor: {detail}")
         return
 
-    # Ventana nativa apuntando al servidor local de Streamlit
-    window = webview.create_window(
-        "WiFi Monitor",
-        url=URL,
-        width=1200,
-        height=800,
-        min_size=(900, 600),
-    )
-
+    # Intentar la ventana nativa primero. Si el motor gráfico nativo
+    # del sistema no está disponible o es incompatible (GTK/WebKit
+    # faltante o desincronizado en Linux, WebView2 Runtime ausente
+    # en Windows, frameworks de WebKit faltantes en macOS), caemos
+    # al navegador del sistema en vez de mostrar un traceback.
     try:
+        window = webview.create_window(
+            "WiFi Monitor",
+            url=URL,
+            width=1200,
+            height=800,
+            min_size=(900, 600),
+        )
         # gui="edgechromium" usa WebView2 en Windows (ya viene en Win10/11 modernos)
         webview.start(gui="edgechromium" if platform.system() == "Windows" else None)
-    finally:
-        # Streamlit corre en hilo daemon: al salir el proceso principal
-        # (aquí), el hilo se termina automáticamente con el programa.
-        pass
+    except Exception as exc:
+        print(f"⚠️  Motor gráfico nativo no disponible: {exc}")
+        run_in_browser_fallback()
 
 
 if __name__ == "__main__":

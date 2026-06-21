@@ -252,7 +252,7 @@ jobs:
           pip install --upgrade pyinstaller streamlit plotly pandas psutil speedtest-cli pywebview pyobjc-core pyobjc-framework-Cocoa pyobjc-framework-WebKit
 
       - name: Instalar create-dmg
-        run: sudo npm install -g create-dmg
+        run: brew install create-dmg
 
       - name: Build DMG
         run: bash build_mac.sh

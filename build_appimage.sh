@@ -24,7 +24,7 @@ sudo apt-get update -qq
 sudo apt-get install -y --no-install-recommends \
     python3 python3-pip python3-venv \
     libfuse2 wget patchelf \
-    wireless-tools iproute2 net-tools arp-scan nmap \
+    iproute2 net-tools arp-scan nmap \
     iputils-ping libnotify-bin \
     gir1.2-gtk-3.0 gir1.2-webkit2-4.1 python3-gi python3-gi-cairo \
     libgirepository1.0-dev gcc libcairo2-dev pkg-config python3-dev

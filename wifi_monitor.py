@@ -711,21 +711,30 @@ if page == t("nav_summary", lang):
             fig = go.Figure(go.Indicator(
                 mode="gauge+number",
                 value=sig_pct,
-                title={"text": t("signal_gauge_title", lang)},
+                title={"text": t("signal_gauge_title", lang),
+                       "font": {"color": "#e5edff", "size": 16}},
                 gauge={
-                    "axis": {"range": [0, 100]},
+                    "axis": {"range": [0, 100], "tickcolor": "#cbd5e1",
+                             "tickfont": {"color": "#cbd5e1"}},
                     "bar":  {"color": "#3b82f6"},
+                    "bgcolor": "#0d2137",
+                    "borderwidth": 0,
                     "steps": [
                         {"range": [0,  30],  "color": "#ef4444"},
                         {"range": [30, 60],  "color": "#f59e0b"},
                         {"range": [60, 100], "color": "#10b981"},
                     ],
                 },
-                number={"suffix": "%"},
+                # Color del número (porcentaje) explícito y siempre legible
+                # sobre el panel oscuro, sin depender del tema del sistema.
+                number={"suffix": "%", "font": {"color": "#ffffff", "size": 40}},
             ))
+            # paper_bgcolor con un color sólido oscuro (no transparente) para
+            # que el porcentaje en blanco SIEMPRE se vea, aunque el sistema
+            # del usuario tenga el tema claro y el fondo de la página sea blanco.
             fig.update_layout(
-                height=250, paper_bgcolor="rgba(0,0,0,0)",
-                font={"color": "white"}, margin=dict(t=40, b=10, l=20, r=20)
+                height=250, paper_bgcolor="#0d2137",
+                font={"color": "#ffffff"}, margin=dict(t=50, b=10, l=20, r=20)
             )
             st.plotly_chart(fig, use_container_width=True)
 

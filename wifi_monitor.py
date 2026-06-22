@@ -27,6 +27,7 @@ import plotly.express as px
 from datetime import datetime, timedelta
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from i18n import t, LANGUAGES, DEFAULT_LANG
 
 # ─────────────────────────────────────────────
 # RUTAS DE DATOS PERSISTENTES
@@ -46,6 +47,13 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ─────────────────────────────────────────────
+# IDIOMA (i18n)
+# ─────────────────────────────────────────────
+if "lang" not in st.session_state:
+    st.session_state["lang"] = DEFAULT_LANG
+lang = st.session_state["lang"]
 
 # ─────────────────────────────────────────────
 # ESTILOS CSS
@@ -218,12 +226,12 @@ def resolve_hostname(ip: str) -> str:
     try:
         return socket.gethostbyaddr(ip)[0]
     except Exception:
-        return "N/A"
+        return t("na", lang)
 
 
 def guess_vendor(mac: str) -> str:
     if mac in ("N/A", "(incomplete)", ""):
-        return "Desconocido"
+        return t("unknown", lang)
     oui = mac.upper().replace("-", ":")[0:8]
     known = {
         "B8:27:EB": "Raspberry Pi", "DC:A6:32": "Raspberry Pi",
@@ -244,7 +252,7 @@ def guess_vendor(mac: str) -> str:
         "00:50:56": "VMware",   "00:0C:29": "VMware",
         "00:1B:21": "Intel",    "14:EB:B6": "Realtek (USB WiFi)",
     }
-    return known.get(oui, "Desconocido")
+    return known.get(oui, t("unknown", lang))
 
 
 @st.cache_data(ttl=60)
@@ -344,39 +352,39 @@ def diagnose_streaming(latency_data: dict) -> dict:
     jitter = latency_data.get("jitter_ms")
 
     if avg is None:
-        return {"verdict": "Sin datos", "cause": "Sin conexión",
-                "color": "bad", "issues": ["No se pudo alcanzar el servidor"],
-                "recommendations": ["Verifica tu conexión WiFi"]}
+        return {"verdict": t("diag_no_data_verdict", lang), "cause": "Sin conexión",
+                "color": "bad", "issues": [t("diag_no_connection_issue", lang)],
+                "recommendations": [t("diag_check_wifi_rec", lang)]}
 
     if loss > 5:
-        issues.append(f"⚠️ Pérdida de paquetes alta: {loss}%")
+        issues.append(t("diag_high_loss_issue", lang, loss=loss))
     if avg > 150:
-        issues.append(f"⚠️ Latencia alta: {avg:.1f} ms")
+        issues.append(t("diag_high_latency_issue", lang, avg=avg))
     if jitter and jitter > 30:
-        issues.append(f"⚠️ Jitter elevado: {jitter:.1f} ms")
+        issues.append(t("diag_high_jitter_issue", lang, jitter=jitter))
 
     if not issues:
-        return {"verdict": "🟢 La red está bien — el problema es externo",
-                "cause": "otro", "color": "ok", "issues": ["Sin problemas detectados"],
+        return {"verdict": t("diag_ok_verdict", lang),
+                "cause": "otro", "color": "ok", "issues": [t("diag_no_issues_label", lang)],
                 "recommendations": [
-                    "Tu conexión tiene buena latencia y sin pérdidas.",
-                    "Revisa: servidor saturado, plan de internet, CPU/RAM del dispositivo, VPN activa.",
+                    t("diag_ok_rec_1", lang),
+                    t("diag_ok_rec_2", lang),
                 ]}
     elif loss > 10 or avg > 200:
-        return {"verdict": "🔴 Problema de RED confirmado",
+        return {"verdict": t("diag_bad_verdict", lang),
                 "cause": "red", "color": "bad", "issues": issues,
                 "recommendations": [
-                    "Reinicia el router (desenchufa 30 seg).",
-                    "Acércate al router o usa cable Ethernet.",
-                    "Verifica si muchos dispositivos consumen ancho de banda.",
-                    "Contacta a tu ISP si persiste.",
+                    t("diag_bad_rec_1", lang),
+                    t("diag_bad_rec_2", lang),
+                    t("diag_bad_rec_3", lang),
+                    t("diag_bad_rec_4", lang),
                 ]}
     else:
-        return {"verdict": "🟡 Red con leve degradación",
+        return {"verdict": t("diag_warn_verdict", lang),
                 "cause": "red", "color": "warn", "issues": issues,
                 "recommendations": [
-                    "Prueba cambiar al canal 5 GHz si tu router lo soporta.",
-                    "Cierra aplicaciones que usen internet en segundo plano.",
+                    t("diag_warn_rec_1", lang),
+                    t("diag_warn_rec_2", lang),
                 ]}
 
 
@@ -432,22 +440,22 @@ def check_and_fire_alerts(wifi_info: dict, lat_data: dict | None = None) -> list
 
     # Alerta de señal baja
     if isinstance(sig, int) and sig < cfg["signal_threshold"]:
-        msg = f"Señal WiFi baja: {sig} dBm (umbral {cfg['signal_threshold']} dBm)"
-        fired.append(("🔴 Señal baja", msg))
-        send_desktop_notification("📡 WiFi Monitor — Señal Baja", msg)
+        msg = t("alert_low_signal_msg", lang, sig=sig, threshold=cfg["signal_threshold"])
+        fired.append((t("alert_low_signal_title", lang), msg))
+        send_desktop_notification(t("alert_desktop_low_signal_title", lang), msg)
         log_alert(msg)
 
     # Alertas de latencia
     if lat_data and lat_data.get("avg_ms"):
         if lat_data["avg_ms"] > cfg["latency_threshold"]:
-            msg = f"Latencia alta: {lat_data['avg_ms']:.0f} ms (umbral {cfg['latency_threshold']} ms)"
-            fired.append(("🟡 Latencia alta", msg))
-            send_desktop_notification("📡 WiFi Monitor — Latencia Alta", msg, "normal")
+            msg = t("alert_high_latency_msg", lang, lat=lat_data["avg_ms"], threshold=cfg["latency_threshold"])
+            fired.append((t("alert_high_latency_title", lang), msg))
+            send_desktop_notification(t("alert_desktop_high_latency_title", lang), msg, "normal")
             log_alert(msg)
         if lat_data["packet_loss"] > cfg["loss_threshold"]:
-            msg = f"Pérdida de paquetes: {lat_data['packet_loss']}% (umbral {cfg['loss_threshold']}%)"
-            fired.append(("🔴 Pérdida paquetes", msg))
-            send_desktop_notification("📡 WiFi Monitor — Paquetes Perdidos", msg)
+            msg = t("alert_packet_loss_msg", lang, loss=lat_data["packet_loss"], threshold=cfg["loss_threshold"])
+            fired.append((t("alert_packet_loss_title", lang), msg))
+            send_desktop_notification(t("alert_desktop_packet_loss_title", lang), msg)
             log_alert(msg)
 
     return fired
@@ -575,7 +583,7 @@ def classify_devices(scanned: list) -> tuple:
     for d in scanned:
         mac = d.get("mac", "N/A").upper()
         if d.get("is_this_pc") or mac in known:
-            label = known.get(mac, {}).get("label", "Este PC" if d.get("is_this_pc") else "")
+            label = known.get(mac, {}).get("label", t("this_pc", lang) if d.get("is_this_pc") else "")
             trusted.append({**d, "label": label})
         else:
             intruders.append(d)
@@ -587,37 +595,47 @@ def classify_devices(scanned: list) -> tuple:
 # ══════════════════════════════════════════════
 
 with st.sidebar:
-    st.title("📡 WiFi Monitor v2")
-    st.caption(f"Host: **{platform.node()}** | {platform.system()} {platform.release()}")
+    st.title(t("app_title", lang))
+    st.caption(t("host_caption", lang, host=platform.node(), system=platform.system(), release=platform.release()))
+    st.divider()
+
+    lang_codes = list(LANGUAGES.keys())
+    selected_lang = st.selectbox(
+        t("language_label", lang),
+        options=lang_codes,
+        format_func=lambda code: LANGUAGES[code],
+        index=lang_codes.index(st.session_state["lang"]),
+    )
+    if selected_lang != st.session_state["lang"]:
+        st.session_state["lang"] = selected_lang
+        st.rerun()
+
     st.divider()
 
     page = st.radio(
-        "Sección",
-        ["🏠 Resumen", "📱 Dispositivos", "🔐 Intrusos",
-         "🎬 Diagnóstico Video", "⚡ Velocidad", "📊 Historial", "🔔 Alertas"],
+        t("section_label", lang),
+        [t("nav_summary", lang), t("nav_devices", lang), t("nav_intruders", lang),
+         t("nav_video", lang), t("nav_speed", lang), t("nav_history", lang), t("nav_alerts", lang)],
         label_visibility="collapsed"
     )
     st.divider()
 
     # ── Contraseña sudo (para arp-scan) ──────────────────────────────────
-    with st.expander("🔑 Contraseña sudo", expanded=False):
-        st.caption(
-            "Necesaria para escanear dispositivos con **arp-scan**. "
-            "No se almacena en disco."
-        )
+    with st.expander(t("sudo_password_expander", lang), expanded=False):
+        st.caption(t("sudo_password_help", lang))
         sudo_pwd = st.text_input(
-            "Contraseña del sistema",
+            t("sudo_password_input", lang),
             type="password",
             key="sudo_password",
-            placeholder="Tu contraseña de Ubuntu",
+            placeholder=t("sudo_password_placeholder", lang),
         )
         if sudo_pwd:
-            st.success("✅ Contraseña lista")
+            st.success(t("sudo_password_ready", lang))
         else:
-            st.warning("Sin contraseña — se usará fallback (ping sweep)")
+            st.warning(t("sudo_password_missing", lang))
     st.divider()
 
-    auto_refresh = st.toggle("Auto-refresh (15s)", value=False)
+    auto_refresh = st.toggle(t("auto_refresh", lang), value=False)
     if auto_refresh:
         time.sleep(15)
         st.rerun()
@@ -634,8 +652,8 @@ with st.sidebar:
 # ══════════════════════════════════════════════
 #  PÁGINA: RESUMEN
 # ══════════════════════════════════════════════
-if page == "🏠 Resumen":
-    st.title("🏠 Resumen de Red")
+if page == t("nav_summary", lang):
+    st.title(t("summary_title", lang))
 
     wifi  = get_wifi_info()
     iface = get_wifi_interface()
@@ -648,20 +666,20 @@ if page == "🏠 Resumen":
         sig_text = f"{sig} dBm ({sig_pct}%)"
         sig_icon = "🟢" if sig > -60 else ("🟡" if sig > -75 else "🔴")
     else:
-        sig_pct, sig_text, sig_icon = 0, "N/A", "⚪"
+        sig_pct, sig_text, sig_icon = 0, t("na", lang), "⚪"
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("📶 Red (SSID)", wifi.get("ssid", "N/A"))
-    c2.metric(f"{sig_icon} Señal", sig_text)
-    c3.metric("📍 Tu IP", my_ip)
-    c4.metric("🔌 Interfaz", iface)
+    c1.metric(t("metric_ssid", lang), wifi.get("ssid", "N/A"))
+    c2.metric(f"{sig_icon} {t('metric_signal', lang)}", sig_text)
+    c3.metric(t("metric_your_ip", lang), my_ip)
+    c4.metric(t("metric_interface", lang), iface)
 
     st.divider()
     c5, c6, c7, c8 = st.columns(4)
-    c5.metric("📺 Frecuencia", wifi.get("freq", "N/A"))
-    c6.metric("📡 Canal", wifi.get("channel", "N/A"))
-    c7.metric("⬆️ Enviado", bytes_to_human(stats.get("bytes_sent", 0)))
-    c8.metric("⬇️ Recibido", bytes_to_human(stats.get("bytes_recv", 0)))
+    c5.metric(t("metric_frequency", lang), wifi.get("freq", "N/A"))
+    c6.metric(t("metric_channel", lang), wifi.get("channel", "N/A"))
+    c7.metric(t("metric_sent", lang), bytes_to_human(stats.get("bytes_sent", 0)))
+    c8.metric(t("metric_received", lang), bytes_to_human(stats.get("bytes_recv", 0)))
 
     # Alertas automáticas en resumen
     cfg = load_alert_config()
@@ -674,26 +692,26 @@ if page == "🏠 Resumen":
     col_lat, col_gauge = st.columns([1, 1])
 
     with col_lat:
-        st.subheader("⚡ Test de Latencia Rápido")
-        if st.button("Medir latencia (8.8.8.8)"):
-            with st.spinner("Midiendo…"):
+        st.subheader(t("latency_test_subheader", lang))
+        if st.button(t("measure_latency_btn", lang)):
+            with st.spinner(t("measuring", lang)):
                 result = measure_latency("8.8.8.8", count=5)
             r1, r2, r3, r4 = st.columns(4)
-            r1.metric("Promedio", f"{result['avg_ms']:.1f} ms" if result["avg_ms"] else "Error")
-            r2.metric("Mínimo",   f"{result['min_ms']:.1f} ms" if result["min_ms"] else "—")
-            r3.metric("Máximo",   f"{result['max_ms']:.1f} ms" if result["max_ms"] else "—")
-            r4.metric("Pérdida",  f"{result['packet_loss']}%")
+            r1.metric(t("metric_average", lang), f"{result['avg_ms']:.1f} ms" if result["avg_ms"] else t("error_word", lang))
+            r2.metric(t("metric_minimum", lang),   f"{result['min_ms']:.1f} ms" if result["min_ms"] else "—")
+            r3.metric(t("metric_maximum", lang),   f"{result['max_ms']:.1f} ms" if result["max_ms"] else "—")
+            r4.metric(t("metric_loss", lang),  f"{result['packet_loss']}%")
             # Alertas de latencia
             alerts = check_and_fire_alerts(wifi, result)
-            for t, m in alerts:
-                st.warning(f"**{t}**: {m}")
+            for tt, m in alerts:
+                st.warning(f"**{tt}**: {m}")
 
     with col_gauge:
         if isinstance(sig, int):
             fig = go.Figure(go.Indicator(
                 mode="gauge+number",
                 value=sig_pct,
-                title={"text": "Calidad de señal WiFi"},
+                title={"text": t("signal_gauge_title", lang)},
                 gauge={
                     "axis": {"range": [0, 100]},
                     "bar":  {"color": "#3b82f6"},
@@ -715,65 +733,60 @@ if page == "🏠 Resumen":
 # ══════════════════════════════════════════════
 #  PÁGINA: DISPOSITIVOS
 # ══════════════════════════════════════════════
-elif page == "📱 Dispositivos":
-    st.title("📱 Dispositivos Conectados")
+elif page == t("nav_devices", lang):
+    st.title(t("devices_title", lang))
 
     col_btn, col_note = st.columns([1, 3])
-    scan_btn = col_btn.button("🔍 Escanear red ahora", type="primary")
-    col_note.info("El primer escaneo puede tardar ~15–30 s.")
+    scan_btn = col_btn.button(t("scan_now_btn", lang), type="primary")
+    col_note.info(t("scan_first_time_note", lang))
 
     if scan_btn or "devices" in st.session_state:
         if scan_btn:
             scan_network.clear()
-            with st.spinner("Escaneando red…"):
+            with st.spinner(t("scanning_network", lang)):
                 devices = scan_network(st.session_state.get("sudo_password", ""))
             st.session_state["devices"] = devices
         else:
             devices = st.session_state["devices"]
 
-        st.success(f"✅ {len(devices)} dispositivo(s) encontrado(s)")
+        st.success(t("devices_found", lang, count=len(devices)))
 
         if devices:
             df = pd.DataFrame(devices)
             df["Este PC"]    = df["is_this_pc"].map({True: "⭐", False: ""})
             df["latency_str"] = df["latency"].apply(lambda x: f"{x:.0f} ms" if x else "—")
             show = df[["ip", "mac", "vendor", "hostname", "latency_str", "Este PC"]].copy()
-            show.columns = ["IP", "MAC", "Fabricante", "Hostname", "Latencia", "Este PC"]
+            show.columns = [t("col_ip", lang), t("col_mac", lang), t("col_vendor", lang),
+                             t("col_hostname", lang), t("col_latency", lang), t("col_this_pc", lang)]
             st.dataframe(show, use_container_width=True, hide_index=True)
 
             vc = df["vendor"].value_counts().reset_index()
-            vc.columns = ["Fabricante", "Cantidad"]
-            fig = px.pie(vc, names="Fabricante", values="Cantidad",
-                         title="Dispositivos por fabricante",
+            vc.columns = [t("col_vendor", lang), t("col_count", lang)]
+            fig = px.pie(vc, names=t("col_vendor", lang), values=t("col_count", lang),
+                         title=t("devices_by_vendor_chart", lang),
                          color_discrete_sequence=px.colors.qualitative.Bold)
             fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", font={"color": "white"},
                               height=300, margin=dict(t=40, b=10))
             st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("Presiona **Escanear red ahora** para ver los dispositivos.")
+        st.info(t("press_scan_hint", lang))
 
 
 # ══════════════════════════════════════════════
 #  PÁGINA: INTRUSOS
 # ══════════════════════════════════════════════
-elif page == "🔐 Intrusos":
-    st.title("🔐 Detector de Intrusos")
-    st.markdown(
-        "La app **aprende** cuáles son tus dispositivos. "
-        "Los que no estén aprobados aparecen como **intrusos**."
-    )
+elif page == t("nav_intruders", lang):
+    st.title(t("intruders_title", lang))
+    st.markdown(t("intruders_intro", lang))
 
     col_scan, col_info = st.columns([1, 3])
-    do_scan = col_scan.button("🔍 Escanear ahora", type="primary")
-    col_info.info(
-        "La primera vez todos aparecerán como desconocidos. "
-        "Apruébalos con un nombre y la próxima vez serán reconocidos."
-    )
+    do_scan = col_scan.button(t("scan_now_short_btn", lang), type="primary")
+    col_info.info(t("intruders_first_scan_note", lang))
 
     if do_scan or "devices" in st.session_state:
         if do_scan:
             scan_network.clear()
-            with st.spinner("Escaneando…"):
+            with st.spinner(t("scanning", lang)):
                 devices = scan_network(st.session_state.get("sudo_password", ""))
             st.session_state["devices"] = devices
         else:
@@ -782,60 +795,60 @@ elif page == "🔐 Intrusos":
         trusted, intruders = classify_devices(devices)
 
         # ── Intrusos ─────────────────────────────────────────────────────
-        st.subheader(f"🚨 Dispositivos desconocidos ({len(intruders)})")
+        st.subheader(t("unknown_devices_subheader", lang, count=len(intruders)))
         if not intruders:
-            st.success("✅ No hay dispositivos desconocidos en tu red.")
+            st.success(t("no_unknown_devices", lang))
         else:
-            st.error(f"Se encontraron **{len(intruders)}** dispositivo(s) no reconocidos.")
+            st.error(t("unknown_devices_found", lang, count=len(intruders)))
             for d in intruders:
                 with st.expander(f"❓ {d['ip']}  —  {d['mac']}  ({d['vendor']})"):
-                    st.write(f"**Hostname:** {d['hostname']}")
-                    st.write(f"**Latencia:** {d['latency']:.0f} ms" if d['latency'] else "")
+                    st.write(f"{t('hostname_label', lang)} {d['hostname']}")
+                    st.write(f"{t('latency_label', lang)} {d['latency']:.0f} ms" if d['latency'] else "")
                     label = st.text_input(
-                        "Nombre para este dispositivo",
-                        placeholder="ej: Celular Omar, Smart TV, Laptop Invitado",
+                        t("device_name_input", lang),
+                        placeholder=t("device_name_placeholder", lang),
                         key=f"label_{d['mac']}"
                     )
                     c1, c2 = st.columns(2)
-                    if c1.button("✅ Aprobar y guardar", key=f"approve_{d['mac']}"):
+                    if c1.button(t("approve_save_btn", lang), key=f"approve_{d['mac']}"):
                         approve_device(d["mac"], label or d["vendor"])
                         send_desktop_notification(
-                            "📡 WiFi Monitor — Dispositivo Aprobado",
-                            f"{label or d['mac']} agregado a la lista blanca"
+                            t("alert_device_approved_title", lang),
+                            t("alert_device_approved_msg", lang, label=label or d["mac"])
                         )
                         st.rerun()
-                    if c2.button("🚫 Ignorar por ahora", key=f"ignore_{d['mac']}"):
-                        st.info("Ignorado. Aparecerá de nuevo en el próximo escaneo.")
+                    if c2.button(t("ignore_for_now_btn", lang), key=f"ignore_{d['mac']}"):
+                        st.info(t("ignored_will_reappear", lang))
 
         st.divider()
 
         # ── Dispositivos conocidos ────────────────────────────────────────
-        st.subheader(f"✅ Dispositivos conocidos ({len(trusted)})")
+        st.subheader(t("known_devices_subheader", lang, count=len(trusted)))
         known_db = load_known_devices()
         for d in trusted:
             mac = d["mac"].upper()
-            label = d.get("label") or ("Este PC" if d.get("is_this_pc") else mac)
+            label = d.get("label") or (t("this_pc", lang) if d.get("is_this_pc") else mac)
             approved_at = known_db.get(mac, {}).get("approved_at", "—")
             with st.expander(f"✅ {label}  —  {d['ip']}"):
                 col_a, col_b = st.columns(2)
                 col_a.write(f"**MAC:** {d['mac']}")
-                col_a.write(f"**Fabricante:** {d['vendor']}")
-                col_b.write(f"**Hostname:** {d['hostname']}")
-                col_b.write(f"**Aprobado:** {approved_at}")
+                col_a.write(f"{t('vendor_label', lang)} {d['vendor']}")
+                col_b.write(f"{t('hostname_label', lang)} {d['hostname']}")
+                col_b.write(f"{t('approved_at_label', lang)} {approved_at}")
                 if not d.get("is_this_pc"):
-                    new_label = st.text_input("Renombrar", value=label, key=f"rename_{mac}")
+                    new_label = st.text_input(t("rename_input", lang), value=label, key=f"rename_{mac}")
                     cc1, cc2 = st.columns(2)
-                    if cc1.button("💾 Guardar nombre", key=f"save_{mac}"):
+                    if cc1.button(t("save_name_btn", lang), key=f"save_{mac}"):
                         approve_device(mac, new_label)
                         st.rerun()
-                    if cc2.button("🗑️ Eliminar de lista blanca", key=f"del_{mac}"):
+                    if cc2.button(t("remove_from_list_btn", lang), key=f"del_{mac}"):
                         remove_device(mac)
                         st.rerun()
 
         # ── Log de alertas recientes ──────────────────────────────────────
         if ALERTS_LOG.exists():
             st.divider()
-            with st.expander("📋 Log de alertas recientes"):
+            with st.expander(t("recent_alerts_log_expander", lang)):
                 lines = ALERTS_LOG.read_text().strip().splitlines()[-20:]
                 for line in reversed(lines):
                     st.caption(line)
@@ -844,18 +857,18 @@ elif page == "🔐 Intrusos":
 # ══════════════════════════════════════════════
 #  PÁGINA: DIAGNÓSTICO VIDEO
 # ══════════════════════════════════════════════
-elif page == "🎬 Diagnóstico Video":
-    st.title("🎬 ¿Por qué va lento mi video?")
+elif page == t("nav_video", lang):
+    st.title(t("video_title", lang))
 
-    with st.expander("⚙️ Opciones"):
-        test_host  = st.selectbox("Servidor de prueba",
+    with st.expander(t("options_expander", lang)):
+        test_host  = st.selectbox(t("test_server_select", lang),
             ["8.8.8.8 (Google DNS)", "1.1.1.1 (Cloudflare)", "208.67.222.222 (OpenDNS)"])
-        ping_count = st.slider("Número de pings", 5, 20, 10)
+        ping_count = st.slider(t("ping_count_slider", lang), 5, 20, 10)
 
     host_ip = test_host.split()[0]
 
-    if st.button("🔬 Diagnosticar ahora", type="primary"):
-        with st.spinner(f"Midiendo hacia {host_ip}…"):
+    if st.button(t("diagnose_now_btn", lang), type="primary"):
+        with st.spinner(t("measuring_towards", lang, host=host_ip)):
             lat_data = measure_latency(host_ip, count=ping_count)
 
         diag = diagnose_streaming(lat_data)
@@ -864,69 +877,57 @@ elif page == "🎬 Diagnóstico Video":
 
         col1, col2 = st.columns(2)
         with col1:
-            st.subheader("📋 Diagnóstico")
+            st.subheader(t("diagnosis_subheader", lang))
             for issue in diag["issues"]:
                 st.write(issue)
             if lat_data.get("avg_ms"):
                 st.divider()
                 m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Promedio",  f"{lat_data['avg_ms']:.1f} ms")
-                m2.metric("Mínimo",    f"{lat_data['min_ms']:.1f} ms")
-                m3.metric("Jitter",    f"{lat_data['jitter_ms']:.1f} ms")
-                m4.metric("Pérdida",   f"{lat_data['packet_loss']}%")
+                m1.metric(t("metric_average", lang),  f"{lat_data['avg_ms']:.1f} ms")
+                m2.metric(t("metric_minimum", lang),    f"{lat_data['min_ms']:.1f} ms")
+                m3.metric(t("metric_jitter", lang),    f"{lat_data['jitter_ms']:.1f} ms")
+                m4.metric(t("metric_loss", lang),   f"{lat_data['packet_loss']}%")
 
         with col2:
-            st.subheader("💡 Recomendaciones")
+            st.subheader(t("recommendations_subheader", lang))
             for rec in diag["recommendations"]:
                 st.info(rec)
 
         st.divider()
-        st.subheader("📖 Referencia para streaming")
+        st.subheader(t("streaming_reference_subheader", lang))
         ref = {
-            "Métrica": ["Latencia", "Jitter", "Pérdida"],
-            "✅ Excelente":    ["< 20 ms",  "< 5 ms",  "0%"],
-            "🟡 Aceptable":    ["20–80 ms", "5–20 ms", "< 1%"],
-            "🔴 Problemático": ["> 150 ms", "> 30 ms", "> 2%"],
+            t("ref_metric_col", lang): [t("ref_latency_row", lang), t("ref_jitter_row", lang), t("ref_loss_row", lang)],
+            t("ref_excellent_col", lang):    ["< 20 ms",  "< 5 ms",  "0%"],
+            t("ref_acceptable_col", lang):    ["20–80 ms", "5–20 ms", "< 1%"],
+            t("ref_problematic_col", lang): ["> 150 ms", "> 30 ms", "> 2%"],
         }
         st.table(pd.DataFrame(ref))
 
-        with st.expander("📚 Si la red está bien, revisa también"):
-            st.markdown("""
-- 🌐 **Servidor saturado** — intenta en horario no pico
-- 📊 **Plan de internet**: HD requiere ~8 Mbps, 4K ~25 Mbps
-- 💻 **CPU/RAM** ocupado — cierra otras apps
-- 🔄 **Actualizaciones en segundo plano**
-- 🔒 **VPN activa** que añade latencia
-            """)
+        with st.expander(t("video_other_checks_expander", lang)):
+            st.markdown(t("video_other_checks_body", lang))
 
 
 # ══════════════════════════════════════════════
 #  PÁGINA: TEST DE VELOCIDAD
 # ══════════════════════════════════════════════
-elif page == "⚡ Velocidad":
-    st.title("⚡ Test de Velocidad Real")
-    st.markdown(
-        "Mide el ancho de banda real de tu conexión a internet "
-        "usando servidores de **Speedtest.net**."
-    )
+elif page == t("nav_speed", lang):
+    st.title(t("speed_title", lang))
+    st.markdown(t("speed_intro", lang))
 
-    st.warning(
-        "⏱️ El test tarda entre **30 y 60 segundos**. "
-        "No cierres la página mientras corre."
-    )
+    st.warning(t("speed_warning", lang))
 
     if "speedtest_history" not in st.session_state:
         st.session_state.speedtest_history = []
 
-    if st.button("🚀 Iniciar test de velocidad", type="primary"):
-        progress = st.progress(0, text="Iniciando speedtest…")
+    if st.button(t("start_speedtest_btn", lang), type="primary"):
+        progress = st.progress(0, text=t("starting_speedtest", lang))
         for i in range(1, 4):
             time.sleep(0.3)
-            progress.progress(i * 10, text="Conectando al servidor más cercano…")
+            progress.progress(i * 10, text=t("connecting_server", lang))
 
-        with st.spinner("Midiendo descarga y subida…"):
+        with st.spinner(t("measuring_up_down", lang)):
             result = run_speedtest()
-        progress.progress(100, text="¡Listo!")
+        progress.progress(100, text=t("ready", lang))
 
         if result.get("success"):
             st.session_state.speedtest_history.append(result)
@@ -937,45 +938,45 @@ elif page == "⚡ Velocidad":
 
             # Clasificación de velocidad
             def speed_label(mbps):
-                if mbps >= 100: return "🟢 Excelente"
-                if mbps >= 25:  return "🟡 Buena"
-                if mbps >= 10:  return "🟠 Aceptable"
-                return "🔴 Lenta"
+                if mbps >= 100: return t("speed_excellent", lang)
+                if mbps >= 25:  return t("speed_good", lang)
+                if mbps >= 10:  return t("speed_acceptable", lang)
+                return t("speed_slow", lang)
 
             c1, c2, c3 = st.columns(3)
-            c1.metric("⬇️ Descarga", f"{dl:.1f} Mbps", speed_label(dl))
-            c2.metric("⬆️ Subida",   f"{ul:.1f} Mbps", speed_label(ul))
-            c3.metric("🏓 Ping",     f"{pi:.0f} ms")
+            c1.metric(t("metric_download", lang), f"{dl:.1f} Mbps", speed_label(dl))
+            c2.metric(t("metric_upload", lang),   f"{ul:.1f} Mbps", speed_label(ul))
+            c3.metric(t("metric_ping", lang),     f"{pi:.0f} ms")
 
             # Referencia por uso
             st.divider()
-            st.subheader("¿Para qué alcanza tu velocidad?")
+            st.subheader(t("speed_use_case_subheader", lang))
             usos = [
-                ("📧 Email / Navegación básica", 1,   dl >= 1),
-                ("📺 Video HD (1080p)",           8,   dl >= 8),
-                ("🎮 Gaming online",              15,  dl >= 15),
-                ("🎬 4K Streaming",               25,  dl >= 25),
-                ("👨‍👩‍👧 4K + varios usuarios",     50,  dl >= 50),
-                ("☁️  Videollamadas 4K",          25,  dl >= 25),
+                (t("use_email_browsing", lang), 1,   dl >= 1),
+                (t("use_hd_video", lang),           8,   dl >= 8),
+                (t("use_gaming", lang),              15,  dl >= 15),
+                (t("use_4k_streaming", lang),               25,  dl >= 25),
+                (t("use_4k_multi", lang),     50,  dl >= 50),
+                (t("use_4k_video_calls", lang),          25,  dl >= 25),
             ]
             for label, req, ok in usos:
                 icon = "✅" if ok else "❌"
-                st.write(f"{icon} {label} (requiere {req} Mbps)")
+                st.write(f"{icon} {label} ({t('requires_mbps', lang, n=req)})")
 
         else:
-            st.error(f"Error al correr el test: {result.get('error', 'Desconocido')}")
-            st.info("Verifica que `speedtest-cli` esté instalado: `pip install speedtest-cli`")
+            st.error(t("speedtest_error", lang, error=result.get('error', t('unknown', lang))))
+            st.info(t("speedtest_install_hint", lang))
 
     # Historial de tests en sesión
     if st.session_state.speedtest_history:
         st.divider()
-        st.subheader("📈 Historial de tests (esta sesión)")
+        st.subheader(t("speedtest_history_subheader", lang))
         hist_df = pd.DataFrame(st.session_state.speedtest_history)
         fig = go.Figure()
         fig.add_trace(go.Bar(x=hist_df["timestamp"], y=hist_df["download_mbps"],
-                             name="⬇️ Descarga", marker_color="#3b82f6"))
+                             name=t("metric_download", lang), marker_color="#3b82f6"))
         fig.add_trace(go.Bar(x=hist_df["timestamp"], y=hist_df["upload_mbps"],
-                             name="⬆️ Subida", marker_color="#10b981"))
+                             name=t("metric_upload", lang), marker_color="#10b981"))
         fig.update_layout(
             barmode="group", yaxis_title="Mbps",
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(17,24,39,0.8)",
@@ -989,8 +990,8 @@ elif page == "⚡ Velocidad":
 # ══════════════════════════════════════════════
 #  PÁGINA: HISTORIAL CSV
 # ══════════════════════════════════════════════
-elif page == "📊 Historial":
-    st.title("📊 Historial de Red (7 días)")
+elif page == t("nav_history", lang):
+    st.title(t("history_title", lang))
 
     # Registrar muestra actual
     wifi  = get_wifi_info()
@@ -1017,10 +1018,10 @@ elif page == "📊 Historial":
 
     # Métricas actuales
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("⬇️ Total recibido", bytes_to_human(stats.get("bytes_recv", 0)))
-    c2.metric("⬆️ Total enviado",  bytes_to_human(stats.get("bytes_sent", 0)))
-    c3.metric("❌ Errores",         stats.get("errin", 0))
-    c4.metric("📦 Paquetes perdidos", stats.get("dropin", 0))
+    c1.metric(t("metric_total_received", lang), bytes_to_human(stats.get("bytes_recv", 0)))
+    c2.metric(t("metric_total_sent", lang),  bytes_to_human(stats.get("bytes_sent", 0)))
+    c3.metric(t("metric_errors", lang),         stats.get("errin", 0))
+    c4.metric(t("metric_dropped_packets", lang), stats.get("dropin", 0))
 
     st.divider()
 
@@ -1029,14 +1030,14 @@ elif page == "📊 Historial":
         df_rt = pd.DataFrame(st.session_state.traffic_history)
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=df_rt["time"], y=df_rt["download_kb"],
-                                 name="⬇️ Descarga (KB/s)", fill="tozeroy",
+                                 name=t("download_kbs", lang), fill="tozeroy",
                                  line=dict(color="#3b82f6", width=2)))
         fig.add_trace(go.Scatter(x=df_rt["time"], y=df_rt["upload_kb"],
-                                 name="⬆️ Subida (KB/s)", fill="tozeroy",
+                                 name=t("upload_kbs", lang), fill="tozeroy",
                                  line=dict(color="#10b981", width=2)))
         fig.update_layout(
-            title="Tráfico en tiempo real (sesión actual)",
-            xaxis_title="Hora", yaxis_title="KB/s",
+            title=t("realtime_traffic_title", lang),
+            xaxis_title=t("time_axis", lang), yaxis_title="KB/s",
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(17,24,39,0.8)",
             font={"color": "white"}, height=300,
             legend=dict(bgcolor="rgba(0,0,0,0)"),
@@ -1047,20 +1048,20 @@ elif page == "📊 Historial":
     # Gráfica histórica CSV (7 días)
     df_hist = load_traffic_history()
     if not df_hist.empty and len(df_hist) > 1:
-        st.subheader("📅 Últimos 7 días — tráfico acumulado")
+        st.subheader(t("last_7_days_subheader", lang))
 
         # Filtro de rango
-        days = st.slider("Mostrar últimos N días", 1, 7, 7)
+        days = st.slider(t("show_last_n_days_slider", lang), 1, 7, 7)
         cutoff = datetime.now() - timedelta(days=days)
         df_f = df_hist[df_hist["timestamp"] >= cutoff].copy()
 
         if not df_f.empty:
             fig2 = go.Figure()
             fig2.add_trace(go.Scatter(x=df_f["timestamp"], y=df_f["download_kb_s"],
-                                      name="⬇️ Descarga KB/s", fill="tozeroy",
+                                      name=t("download_kbs_short", lang), fill="tozeroy",
                                       line=dict(color="#3b82f6")))
             fig2.add_trace(go.Scatter(x=df_f["timestamp"], y=df_f["upload_kb_s"],
-                                      name="⬆️ Subida KB/s", fill="tozeroy",
+                                      name=t("upload_kbs_short", lang), fill="tozeroy",
                                       line=dict(color="#10b981")))
 
             # Señal
@@ -1068,12 +1069,12 @@ elif page == "📊 Historial":
             if not df_sig.empty:
                 fig2.add_trace(go.Scatter(
                     x=df_sig["timestamp"], y=df_sig["signal_dbm"],
-                    name="📶 Señal dBm", yaxis="y2",
+                    name=t("signal_dbm_trace", lang), yaxis="y2",
                     line=dict(color="#f59e0b", dash="dot")
                 ))
 
             fig2.update_layout(
-                xaxis_title="Fecha/Hora", yaxis_title="KB/s",
+                xaxis_title=t("datetime_axis", lang), yaxis_title="KB/s",
                 yaxis2=dict(title="dBm", overlaying="y", side="right",
                             range=[-100, -20]),
                 paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(17,24,39,0.8)",
@@ -1084,49 +1085,43 @@ elif page == "📊 Historial":
             st.plotly_chart(fig2, use_container_width=True)
 
             # Tabla resumen
-            st.subheader("📋 Resumen estadístico")
+            st.subheader(t("stats_summary_subheader", lang))
             summary = df_f[["download_kb_s", "upload_kb_s", "signal_dbm"]].describe().round(2)
             st.dataframe(summary, use_container_width=True)
 
             # Descargar CSV
             st.download_button(
-                "⬇️ Descargar historial CSV",
+                t("download_history_csv_btn", lang),
                 data=df_f.to_csv(index=False),
                 file_name=f"wifi_history_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv"
             )
     else:
-        st.info(
-            "El historial se construye automáticamente mientras la app está abierta. "
-            f"Los datos se guardan en `{TRAFFIC_CSV}`"
-        )
+        st.info(t("history_autobuild_note", lang, path=TRAFFIC_CSV))
 
-    if st.button("🔄 Actualizar"):
+    if st.button(t("refresh_btn", lang)):
         st.rerun()
 
 
 # ══════════════════════════════════════════════
 #  PÁGINA: ALERTAS
 # ══════════════════════════════════════════════
-elif page == "🔔 Alertas":
-    st.title("🔔 Configuración de Alertas")
-    st.markdown(
-        "Las alertas se envían como **notificación de escritorio Ubuntu** "
-        "y como **banner rojo en la app**. También quedan registradas en el log."
-    )
+elif page == t("nav_alerts", lang):
+    st.title(t("alerts_title", lang))
+    st.markdown(t("alerts_intro", lang))
 
     cfg = load_alert_config()
 
     with st.form("alert_form"):
-        st.subheader("⚙️ Umbrales")
-        enabled = st.toggle("Alertas activadas", value=cfg.get("enabled", True))
+        st.subheader(t("thresholds_subheader", lang))
+        enabled = st.toggle(t("alerts_enabled_toggle", lang), value=cfg.get("enabled", True))
 
         c1, c2, c3 = st.columns(3)
-        sig_thr  = c1.slider("Señal mínima (dBm)",   -90, -50, cfg["signal_threshold"])
-        lat_thr  = c2.slider("Latencia máxima (ms)",  50, 500, cfg["latency_threshold"])
-        loss_thr = c3.slider("Pérdida máx (%)",         1,  50, cfg["loss_threshold"])
+        sig_thr  = c1.slider(t("min_signal_slider", lang),   -90, -50, cfg["signal_threshold"])
+        lat_thr  = c2.slider(t("max_latency_slider", lang),  50, 500, cfg["latency_threshold"])
+        loss_thr = c3.slider(t("max_loss_slider", lang),         1,  50, cfg["loss_threshold"])
 
-        submitted = st.form_submit_button("💾 Guardar configuración", type="primary")
+        submitted = st.form_submit_button(t("save_config_btn", lang), type="primary")
         if submitted:
             new_cfg = {
                 "enabled": enabled,
@@ -1135,47 +1130,39 @@ elif page == "🔔 Alertas":
                 "loss_threshold": loss_thr,
             }
             save_alert_config(new_cfg)
-            st.success("✅ Configuración guardada.")
+            st.success(t("config_saved", lang))
 
     st.divider()
 
     # Test manual de alertas
-    st.subheader("🧪 Probar alertas")
-    if st.button("Enviar notificación de prueba al escritorio"):
+    st.subheader(t("test_alerts_subheader", lang))
+    if st.button(t("send_test_notification_btn", lang)):
         send_desktop_notification(
-            "📡 WiFi Monitor — Prueba",
-            "Las notificaciones de escritorio funcionan correctamente ✅"
+            t("test_notification_title", lang),
+            t("test_notification_body", lang)
         )
-        st.success("Notificación enviada. Revisa el área de notificaciones de Ubuntu.")
+        st.success(t("notification_sent", lang))
 
     st.divider()
 
     # Log de alertas
-    st.subheader("📋 Log de alertas")
+    st.subheader(t("alerts_log_subheader", lang))
     if ALERTS_LOG.exists():
         lines = ALERTS_LOG.read_text().strip().splitlines()
         if lines:
             df_log = pd.DataFrame(
                 [l.split(" | ", 1) for l in lines if " | " in l],
-                columns=["Fecha/Hora", "Mensaje"]
+                columns=[t("col_datetime", lang), t("col_message", lang)]
             )
             st.dataframe(df_log.iloc[::-1], use_container_width=True, hide_index=True)
-            if st.button("🗑️ Limpiar log"):
+            if st.button(t("clear_log_btn", lang)):
                 ALERTS_LOG.write_text("")
                 st.rerun()
         else:
-            st.info("Sin alertas registradas aún.")
+            st.info(t("no_alerts_logged", lang))
     else:
-        st.info("Sin alertas registradas aún.")
+        st.info(t("no_alerts_logged", lang))
 
     st.divider()
-    st.subheader("ℹ️ ¿Cómo funcionan las notificaciones de escritorio?")
-    st.markdown("""
-La app usa `notify-send` (incluido en Ubuntu por defecto).
-
-Si no ves las notificaciones, ejecuta en terminal:
-```bash
-sudo apt install libnotify-bin
-```
-Y asegúrate de que la app corra en la **misma sesión gráfica** (no por SSH sin `-X`).
-    """)
+    st.subheader(t("how_notifications_work_subheader", lang))
+    st.markdown(t("notifications_explanation", lang))

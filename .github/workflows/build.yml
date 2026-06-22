@@ -74,11 +74,17 @@ jobs:
         run: |
           bash build_appimage.sh
 
+      - name: Construir paquete .deb
+        run: |
+          bash build_deb.sh
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: linux-appimage
-          path: WiFiMonitor-*.AppImage
+          name: linux-packages
+          path: |
+            WiFiMonitor-*.AppImage
+            WiFiMonitor_*.deb
 
   # ─────────────────────────────────────────────
   #  WINDOWS — Instalador .exe (firmado)
@@ -284,6 +290,7 @@ jobs:
         with:
           files: |
             WiFiMonitor-*.AppImage
+            WiFiMonitor_*.deb
             WiFiMonitor-Setup.exe
             WiFiMonitor-*.dmg
           body: |
@@ -292,7 +299,8 @@ jobs:
             ### Descargas
             | Plataforma | Archivo | Instrucciones |
             |------------|---------|---------------|
-            | 🐧 Linux   | `.AppImage` | `chmod +x WiFiMonitor*.AppImage && ./WiFiMonitor*.AppImage` |
+            | 🐧 Linux (Ubuntu/Debian) | `.deb` | `sudo apt install ./WiFiMonitor_*.deb` (o doble clic). Queda en el menú de aplicaciones. |
+            | 🐧 Linux (universal) | `.AppImage` | `chmod +x WiFiMonitor*.AppImage && ./WiFiMonitor*.AppImage` |
             | 🪟 Windows | `WiFiMonitor-Setup.exe` | Doble clic → Siguiente → Instalar |
             | 🍎 macOS (Apple Silicon: M1/M2/M3/M4) | `*.dmg` | Arrastrar a Aplicaciones |
 

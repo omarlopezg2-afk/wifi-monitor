@@ -82,6 +82,14 @@ def run_streamlit_in_thread():
             # Forzar este flag a False hace que el puerto mostrado y
             # usado sea siempre el real (server.port).
             "global.developmentMode": False,
+            # Forzar tema oscuro: toda la UI (tarjetas, gráficas) está
+            # diseñada en oscuro. Sin esto, en un sistema con tema claro
+            # el fondo se vuelve blanco y algunos textos quedan ilegibles.
+            "theme.base": "dark",
+            "theme.primaryColor": "#3b82f6",
+            "theme.backgroundColor": "#0e1117",
+            "theme.secondaryBackgroundColor": "#1a2332",
+            "theme.textColor": "#e5edff",
         }
         # CRÍTICO: bootstrap.run() NO aplica flag_options al estado
         # global de config. Esa aplicación (load_config_options)
@@ -162,6 +170,73 @@ def run_in_browser_fallback():
         pass
 
 
+def add_linux_window_controls(window):
+    """
+    En Linux la ventana la dibuja pywebview con un Gtk.ApplicationWindow
+    cuyas decoraciones las pone el gestor de ventanas (WM). En GNOME, por
+    defecto, el WM solo muestra el botón de cerrar (la «X»): minimizar y
+    maximizar quedan ocultos por la política del escritorio.
+
+    Para garantizar los tres botones (minimizar, maximizar/restaurar y
+    cerrar) en CUALQUIER escritorio (GNOME, KDE, XFCE, etc.), le ponemos
+    a la ventana una barra de título propia (Gtk.HeaderBar, decoración del
+    lado del cliente). Al dibujarla la propia app, ya no depende de la
+    política de botones del WM. GTK conecta solos los botones a las
+    acciones de minimizar/maximizar/cerrar.
+
+    Todo va envuelto en try/except: si algo falla, la ventana sigue
+    funcionando con la decoración que ponga el WM (sin romper nada).
+    """
+    if platform.system() != "Linux":
+        return
+
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
+        from gi.repository import Gtk, GLib
+    except Exception as exc:  # noqa: BLE001
+        print(f"⚠️  No se pudieron cargar los controles de ventana GTK: {exc}")
+        return
+
+    def _install_headerbar():
+        try:
+            native = getattr(window, "native", None)
+            if native is None:
+                # La ventana nativa aún no está lista; reintentar luego.
+                return True  # devuelve True => GLib vuelve a llamar
+
+            # WM_CLASS determinista para que el .desktop (StartupWMClass)
+            # agrupe la app en el dock y le ponga el ícono correcto.
+            try:
+                native.set_wmclass("WiFiMonitor", "WiFiMonitor")
+            except Exception:
+                pass
+
+            headerbar = Gtk.HeaderBar()
+            headerbar.set_show_close_button(True)
+            headerbar.set_title("WiFi Monitor")
+            # Layout con los tres botones estándar. GTK los dibuja y los
+            # cablea solo: minimize -> iconify, maximize -> (un)maximize,
+            # close -> cerrar la ventana.
+            try:
+                headerbar.set_decoration_layout(":minimize,maximize,close")
+            except Exception:
+                pass
+
+            native.set_titlebar(headerbar)
+            headerbar.show_all()
+            native.set_resizable(True)
+        except Exception as exc:  # noqa: BLE001
+            print(f"⚠️  No se pudo instalar la barra de título personalizada: {exc}")
+        return False  # False => no repetir
+
+    # Las llamadas a GTK deben correr en el hilo del bucle principal de
+    # GTK. Esta función la ejecuta pywebview en un hilo aparte, así que
+    # programamos el trabajo con idle_add para que se ejecute en el hilo
+    # correcto en cuanto el bucle esté libre.
+    GLib.idle_add(_install_headerbar)
+
+
 def main():
     # Streamlit corre en un hilo daemon: si el proceso principal
     # termina (p. ej. el usuario cierra la ventana), el hilo no
@@ -203,8 +278,15 @@ def main():
             height=800,
             min_size=(900, 600),
         )
+        # En Linux añadimos una barra de título propia con los botones
+        # minimizar / maximizar / cerrar (ver add_linux_window_controls).
+        # webview.start(func, args) ejecuta func tras arrancar el bucle de
+        # la GUI, momento en el que window.native ya existe.
         # gui="edgechromium" usa WebView2 en Windows (ya viene en Win10/11 modernos)
-        webview.start(gui="edgechromium" if platform.system() == "Windows" else None)
+        if platform.system() == "Windows":
+            webview.start(gui="edgechromium")
+        else:
+            webview.start(add_linux_window_controls, window)
     except Exception as exc:
         print(f"⚠️  Motor gráfico nativo no disponible: {exc}")
         run_in_browser_fallback()

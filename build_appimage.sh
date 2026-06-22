@@ -7,7 +7,14 @@
 set -e
 
 APP_NAME="WiFiMonitor"
-VERSION="2.0"
+# Versión tomada del tag de git (v5.0 -> 5.0) para que el nombre del
+# AppImage coincida con el Release. Mismo criterio que build_deb.sh.
+VERSION="${VERSION:-${GITHUB_REF_NAME:-}}"
+if [ -z "${VERSION}" ]; then
+    VERSION="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+fi
+VERSION="${VERSION#v}"
+VERSION="${VERSION:-5.0}"
 ARCH="x86_64"
 APPDIR="${APP_NAME}.AppDir"
 OUTFILE="${APP_NAME}-${VERSION}-${ARCH}.AppImage"

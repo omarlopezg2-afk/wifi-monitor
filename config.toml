@@ -1,0 +1,18 @@
+# Tema oscuro forzado.
+# La interfaz de WiFi Monitor (tarjetas, gráficas, indicadores) está
+# diseñada para fondo oscuro. Este archivo aplica el tema cuando la app
+# se ejecuta con `streamlit run wifi_monitor.py` (modo desarrollo).
+# En el ejecutable empaquetado, el mismo tema se fuerza desde launcher.py
+# vía flag_options de bootstrap.
+[theme]
+base = "dark"
+primaryColor = "#3b82f6"
+backgroundColor = "#0e1117"
+secondaryBackgroundColor = "#1a2332"
+textColor = "#e5edff"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

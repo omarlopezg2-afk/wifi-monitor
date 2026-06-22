@@ -54,9 +54,11 @@ jobs:
             --noconfirm --onedir --windowed \
             --name WiFiMonitor \
             --add-data "wifi_monitor.py:." \
+            --add-data "i18n.py:." \
             --hidden-import streamlit \
             --hidden-import streamlit.web.cli \
             --hidden-import streamlit.runtime.scriptrunner \
+            --hidden-import i18n \
             --hidden-import altair \
             --hidden-import webview \
             --hidden-import webview.platforms.gtk \

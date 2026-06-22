@@ -37,13 +37,14 @@ from PyInstaller.utils.hooks import collect_all, copy_metadata
 # metadata de distribución (dist-info), que Streamlit consulta en
 # runtime vía importlib.metadata.version("streamlit"). Si falta,
 # la app falla con "No package metadata was found for streamlit".
-datas = [('wifi_monitor.py', '.')]
+datas = [('wifi_monitor.py', '.'), ('i18n.py', '.')]
 binaries = []
 hiddenimports = [
     'streamlit.web.cli',
     'streamlit.web.bootstrap',
     'streamlit.runtime.scriptrunner',
     'webview.platforms.gtk',
+    'i18n',
 ]
 
 for pkg in ('streamlit', 'altair', 'webview'):

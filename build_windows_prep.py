@@ -78,11 +78,13 @@ def main():
         "--icon", "wifi_monitor.ico",
         "--add-data", "wifi_monitor.py;.",   # Windows usa ; como separador
         "--add-data", "i18n.py;.",           # módulo de idiomas (importado por wifi_monitor.py en runtime)
+        "--add-data", "oui_db.json;.",       # base de datos IEEE de fabricantes (OUI)
         "--hidden-import", "streamlit",
         "--hidden-import", "streamlit.web.cli",
         "--hidden-import", "streamlit.runtime.scriptrunner",
         "--hidden-import", "streamlit.runtime.caching",
         "--hidden-import", "i18n",
+        "--hidden-import", "speedtest",
         "--hidden-import", "altair",
         "--hidden-import", "plotly",
         "--hidden-import", "pandas",

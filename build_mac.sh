@@ -122,11 +122,13 @@ pyinstaller \
     --osx-bundle-identifier "${BUNDLE_ID}" \
     --add-data "wifi_monitor.py:." \
     --add-data "i18n.py:." \
+    --add-data "oui_db.json:." \
     --hidden-import "streamlit" \
     --hidden-import "streamlit.web.cli" \
     --hidden-import "streamlit.web.bootstrap" \
     --hidden-import "streamlit.runtime.scriptrunner" \
     --hidden-import "i18n" \
+    --hidden-import "speedtest" \
     --hidden-import "altair" \
     --hidden-import "plotly" \
     --hidden-import "pandas" \

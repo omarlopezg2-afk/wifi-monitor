@@ -20,6 +20,7 @@ import psutil
 import json
 import csv
 import os
+import sys
 import threading
 import pandas as pd
 import plotly.graph_objects as go
@@ -229,30 +230,46 @@ def resolve_hostname(ip: str) -> str:
         return t("na", lang)
 
 
+# Respaldo mínimo embebido por si faltara el archivo oui_db.json.
+# El nombre del fabricante es un nombre propio: NO se traduce.
+_FALLBACK_OUI = {
+    "B8:27:EB": "Raspberry Pi", "DC:A6:32": "Raspberry Pi",
+    "3C:22:FB": "Apple",    "F0:18:98": "Apple",
+    "70:85:C2": "Apple",    "AC:BC:32": "Apple",
+    "F0:9F:C2": "Ubiquiti", "24:A4:3C": "Ubiquiti",
+    "DC:9F:DB": "TP-Link",  "50:C7:BF": "TP-Link",
+    "00:50:56": "VMware",   "00:0C:29": "VMware",
+}
+
+
+def _oui_db_path() -> Path:
+    """Ubica oui_db.json tanto en ejecución normal como dentro del bundle PyInstaller."""
+    base = getattr(sys, "_MEIPASS", None)
+    if base:
+        p = Path(base) / "oui_db.json"
+        if p.exists():
+            return p
+    return Path(__file__).resolve().parent / "oui_db.json"
+
+
+@st.cache_resource
+def _load_oui_db() -> dict:
+    """Carga la base de datos IEEE (prefijo OUI -> fabricante) una sola vez."""
+    try:
+        return json.loads(_oui_db_path().read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
 def guess_vendor(mac: str) -> str:
-    if mac in ("N/A", "(incomplete)", ""):
+    # El nombre del fabricante NO depende del idioma; sólo el texto
+    # "Desconocido" (cuando no se identifica) se traduce.
+    if not mac or mac in ("N/A", "(incomplete)", ""):
         return t("unknown", lang)
     oui = mac.upper().replace("-", ":")[0:8]
-    known = {
-        "B8:27:EB": "Raspberry Pi", "DC:A6:32": "Raspberry Pi",
-        "00:1A:79": "Apple",    "A4:C3:F0": "Apple",
-        "3C:22:FB": "Apple",    "F0:18:98": "Apple",
-        "70:85:C2": "Apple",    "AC:BC:32": "Apple",
-        "18:65:90": "Apple",    "8C:85:90": "Apple",
-        "00:26:BB": "Apple",    "28:CF:E9": "Apple",
-        "F8:1E:DF": "Apple",    "04:0C:CE": "Cisco",
-        "00:1E:E5": "Cisco",    "E8:40:F2": "Motorola",
-        "F0:9F:C2": "Ubiquiti", "24:A4:3C": "Ubiquiti",
-        "DC:9F:DB": "TP-Link",  "50:C7:BF": "TP-Link",
-        "C4:E9:84": "TP-Link",  "EC:08:6B": "TP-Link",
-        "00:1D:AA": "D-Link",   "1C:7E:E5": "D-Link",
-        "00:26:5A": "Netgear",  "A0:21:B7": "Netgear",
-        "2C:D0:5A": "Samsung",  "8C:C8:CD": "Samsung",
-        "00:16:32": "Samsung",  "94:35:0A": "Samsung",
-        "00:50:56": "VMware",   "00:0C:29": "VMware",
-        "00:1B:21": "Intel",    "14:EB:B6": "Realtek (USB WiFi)",
-    }
-    return known.get(oui, t("unknown", lang))
+    db = _load_oui_db()
+    name = db.get(oui) or _FALLBACK_OUI.get(oui)
+    return name if name else t("unknown", lang)
 
 
 @st.cache_data(ttl=60)
@@ -520,28 +537,27 @@ def load_traffic_history() -> pd.DataFrame:
 
 def run_speedtest() -> dict:
     """
-    Ejecuta speedtest-cli como subproceso para no bloquear Streamlit.
+    Ejecuta el test de velocidad usando la librería 'speedtest' (speedtest-cli)
+    como módulo de Python, en lugar de invocar el ejecutable 'speedtest-cli'
+    por PATH (que no existe dentro del bundle de PyInstaller y provoca
+    'No existe el archivo o directorio: speedtest-cli').
     Retorna dict con download_mbps, upload_mbps, ping_ms, server.
     """
     try:
-        r = subprocess.run(
-            ["speedtest-cli", "--simple", "--secure"],
-            capture_output=True, text=True, timeout=90
-        )
-        out = r.stdout
-        result = {}
-        m = re.search(r"Ping:\s*([\d.]+)\s*ms", out)
-        if m:
-            result["ping_ms"] = float(m.group(1))
-        m = re.search(r"Download:\s*([\d.]+)\s*Mbit/s", out)
-        if m:
-            result["download_mbps"] = float(m.group(1))
-        m = re.search(r"Upload:\s*([\d.]+)\s*Mbit/s", out)
-        if m:
-            result["upload_mbps"] = float(m.group(1))
-        result["timestamp"] = datetime.now().strftime("%H:%M:%S")
-        result["success"] = bool(result.get("download_mbps"))
-        return result
+        import speedtest  # del paquete speedtest-cli
+        s = speedtest.Speedtest(secure=True)
+        s.get_best_server()
+        download = s.download() / 1_000_000   # bits/s -> Mbit/s
+        upload   = s.upload() / 1_000_000
+        res = s.results.dict()
+        return {
+            "success": True,
+            "ping_ms": round(res.get("ping", 0.0), 1),
+            "download_mbps": round(download, 2),
+            "upload_mbps": round(upload, 2),
+            "server": (res.get("server") or {}).get("sponsor", ""),
+            "timestamp": datetime.now().strftime("%H:%M:%S"),
+        }
     except Exception as e:
         return {"success": False, "error": str(e)}
 

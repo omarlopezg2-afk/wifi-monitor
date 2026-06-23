@@ -272,6 +272,22 @@ def guess_vendor(mac: str) -> str:
     return name if name else t("unknown", lang)
 
 
+def best_vendor(mac: str, arp_vendor: str = "") -> str:
+    """
+    Elige el mejor nombre de fabricante. Nuestra base IEEE (oui_db.json)
+    es autoritativa; el valor que entrega arp-scan se usa SOLO como
+    respaldo, y nunca cuando dice "(Unknown)" (su base local suele estar
+    vacía o desactualizada en el runner/sistema del usuario).
+    """
+    v = guess_vendor(mac)
+    if v != t("unknown", lang):
+        return v
+    arp_vendor = (arp_vendor or "").strip()
+    if arp_vendor and "unknown" not in arp_vendor.lower() and arp_vendor != "(incomplete)":
+        return arp_vendor
+    return t("unknown", lang)
+
+
 @st.cache_data(ttl=60)
 def scan_network(sudo_password: str = "") -> list:
     devices = []
@@ -297,7 +313,7 @@ def scan_network(sudo_password: str = "") -> list:
                 if len(parts) >= 2:
                     ip = parts[0].strip()
                     mac = parts[1].strip() if len(parts) > 1 else "N/A"
-                    vendor = parts[2].strip() if len(parts) > 2 else guess_vendor(mac)
+                    vendor = best_vendor(mac, parts[2] if len(parts) > 2 else "")
                     if re.match(r"\d+\.\d+\.\d+\.\d+", ip):
                         devices.append({
                             "ip": ip, "mac": mac, "vendor": vendor,

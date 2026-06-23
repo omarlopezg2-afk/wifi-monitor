@@ -55,6 +55,8 @@ jobs:
             --name WiFiMonitor \
             --add-data "wifi_monitor.py:." \
             --add-data "i18n.py:." \
+            --add-data "oui_db.json:." \
+            --hidden-import speedtest \            
             --hidden-import streamlit \
             --hidden-import streamlit.web.cli \
             --hidden-import streamlit.runtime.scriptrunner \

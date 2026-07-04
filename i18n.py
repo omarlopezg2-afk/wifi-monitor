@@ -744,6 +744,14 @@ TRANSLATIONS = {
         "de": "Die App verwendet `notify-send` (standardmäßig in Ubuntu enthalten).\n\nWenn du keine Benachrichtigungen siehst, führe im Terminal aus:\n```bash\nsudo apt install libnotify-bin\n```\nUnd stelle sicher, dass die App in der **gleichen grafischen Sitzung** läuft (nicht über SSH ohne `-X`).",
         "it": "L'app usa `notify-send` (incluso in Ubuntu per impostazione predefinita).\n\nSe non vedi le notifiche, esegui nel terminale:\n```bash\nsudo apt install libnotify-bin\n```\nE assicurati che l'app sia in esecuzione nella **stessa sessione grafica** (non via SSH senza `-X`).",
     },
+    "notifications_explanation_windows": {
+        "es": "En Windows esta versión no envía notificaciones de escritorio. Las alertas siguen funcionando: se guardan en el registro de abajo y se muestran como aviso dentro de la app cuando se superan los umbrales configurados.",
+        "en": "On Windows this version doesn't send desktop notifications. Alerts still work: they're saved in the log below and shown as an in-app banner when the configured thresholds are exceeded.",
+        "pt": "No Windows esta versão não envia notificações de área de trabalho. Os alertas continuam funcionando: são salvos no registro abaixo e exibidos como aviso dentro do app quando os limites configurados são excedidos.",
+        "fr": "Sur Windows, cette version n'envoie pas de notifications de bureau. Les alertes fonctionnent toujours : elles sont enregistrées dans le journal ci-dessous et affichées sous forme de bannière dans l'application lorsque les seuils configurés sont dépassés.",
+        "de": "Unter Windows sendet diese Version keine Desktop-Benachrichtigungen. Benachrichtigungen funktionieren weiterhin: Sie werden im Protokoll unten gespeichert und als Banner in der App angezeigt, wenn die konfigurierten Schwellenwerte überschritten werden.",
+        "it": "Su Windows questa versione non invia notifiche desktop. Gli avvisi funzionano comunque: vengono salvati nel registro qui sotto e mostrati come banner nell'app quando vengono superate le soglie configurate.",
+    },
 
     # ───────────────────────────── VALORES COMPARTIDOS / DATOS ─────────────────────────────
     "na": {

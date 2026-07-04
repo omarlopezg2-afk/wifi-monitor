@@ -102,10 +102,12 @@ st.markdown("""
     }
     div[data-testid="stMetric"] [data-testid="stMetricValue"] {
         color: #ffffff !important;
-        font-size: clamp(1rem, 3.2vw, 1.9rem) !important;
-        white-space: nowrap !important;
+        font-size: clamp(0.95rem, 2.6vw, 1.7rem) !important;
+        white-space: normal !important;
         overflow: visible !important;
         text-overflow: unset !important;
+        word-break: break-word !important;
+        line-height: 1.2 !important;
     }
     div[data-testid="stMetric"] [data-testid="stMetricDelta"] {
         color: #d1d5db !important;
@@ -784,20 +786,21 @@ with st.sidebar:
     )
     st.divider()
 
-    # ── Contraseña sudo (para arp-scan) ──────────────────────────────────
-    with st.expander(t("sudo_password_expander", lang), expanded=False):
-        st.caption(t("sudo_password_help", lang))
-        sudo_pwd = st.text_input(
-            t("sudo_password_input", lang),
-            type="password",
-            key="sudo_password",
-            placeholder=t("sudo_password_placeholder", lang),
-        )
-        if sudo_pwd:
-            st.success(t("sudo_password_ready", lang))
-        else:
-            st.warning(t("sudo_password_missing", lang))
-    st.divider()
+    # ── Contraseña sudo (para arp-scan, solo aplica en Linux) ────────────
+    if platform.system() != "Windows":
+        with st.expander(t("sudo_password_expander", lang), expanded=False):
+            st.caption(t("sudo_password_help", lang))
+            sudo_pwd = st.text_input(
+                t("sudo_password_input", lang),
+                type="password",
+                key="sudo_password",
+                placeholder=t("sudo_password_placeholder", lang),
+            )
+            if sudo_pwd:
+                st.success(t("sudo_password_ready", lang))
+            else:
+                st.warning(t("sudo_password_missing", lang))
+        st.divider()
 
     auto_refresh = st.toggle(t("auto_refresh", lang), value=False)
     if auto_refresh:
@@ -861,9 +864,9 @@ if page == t("nav_summary", lang):
             with st.spinner(t("measuring", lang)):
                 result = measure_latency("8.8.8.8", count=5)
             r1, r2, r3, r4 = st.columns(4)
-            r1.metric(t("metric_average", lang), f"{result['avg_ms']:.1f} ms" if result["avg_ms"] else t("error_word", lang))
-            r2.metric(t("metric_minimum", lang),   f"{result['min_ms']:.1f} ms" if result["min_ms"] else "—")
-            r3.metric(t("metric_maximum", lang),   f"{result['max_ms']:.1f} ms" if result["max_ms"] else "—")
+            r1.metric(t("metric_average", lang), f"{result['avg_ms']:.0f} ms" if result["avg_ms"] else t("error_word", lang))
+            r2.metric(t("metric_minimum", lang),   f"{result['min_ms']:.0f} ms" if result["min_ms"] else "—")
+            r3.metric(t("metric_maximum", lang),   f"{result['max_ms']:.0f} ms" if result["max_ms"] else "—")
             r4.metric(t("metric_loss", lang),  f"{result['packet_loss']}%")
             # Alertas de latencia
             alerts = check_and_fire_alerts(wifi, result)
@@ -1056,11 +1059,11 @@ elif page == t("nav_video", lang):
             if lat_data.get("avg_ms"):
                 st.divider()
                 m1, m2, m3, m4 = st.columns(4)
-                m1.metric(t("metric_average", lang),  f"{lat_data['avg_ms']:.1f} ms")
+                m1.metric(t("metric_average", lang),  f"{lat_data['avg_ms']:.0f} ms")
                 m2.metric(t("metric_minimum", lang),
-                          f"{lat_data['min_ms']:.1f} ms" if lat_data.get("min_ms") is not None else "—")
+                          f"{lat_data['min_ms']:.0f} ms" if lat_data.get("min_ms") is not None else "—")
                 m3.metric(t("metric_jitter", lang),
-                          f"{lat_data['jitter_ms']:.1f} ms" if lat_data.get("jitter_ms") is not None else "—")
+                          f"{lat_data['jitter_ms']:.0f} ms" if lat_data.get("jitter_ms") is not None else "—")
                 m4.metric(t("metric_loss", lang),   f"{lat_data['packet_loss']}%")
 
         with col2:
@@ -1309,16 +1312,16 @@ elif page == t("nav_alerts", lang):
 
     st.divider()
 
-    # Test manual de alertas
-    st.subheader(t("test_alerts_subheader", lang))
-    if st.button(t("send_test_notification_btn", lang)):
-        send_desktop_notification(
-            t("test_notification_title", lang),
-            t("test_notification_body", lang)
-        )
-        st.success(t("notification_sent", lang))
-
-    st.divider()
+    # Test manual de alertas (notificación de escritorio: solo Linux)
+    if platform.system() != "Windows":
+        st.subheader(t("test_alerts_subheader", lang))
+        if st.button(t("send_test_notification_btn", lang)):
+            send_desktop_notification(
+                t("test_notification_title", lang),
+                t("test_notification_body", lang)
+            )
+            st.success(t("notification_sent", lang))
+        st.divider()
 
     # Log de alertas
     st.subheader(t("alerts_log_subheader", lang))
@@ -1340,4 +1343,7 @@ elif page == t("nav_alerts", lang):
 
     st.divider()
     st.subheader(t("how_notifications_work_subheader", lang))
-    st.markdown(t("notifications_explanation", lang))
+    if platform.system() == "Windows":
+        st.markdown(t("notifications_explanation_windows", lang))
+    else:
+        st.markdown(t("notifications_explanation", lang))

@@ -117,6 +117,16 @@ st.markdown("""
 
 @st.cache_data(ttl=5)
 def get_wifi_interface() -> str:
+    if platform.system() == "Windows":
+        try:
+            local_ip = get_local_ip()
+            for iface, addrs in psutil.net_if_addrs().items():
+                for addr in addrs:
+                    if addr.family == socket.AF_INET and addr.address == local_ip:
+                        return iface
+        except Exception:
+            pass
+        return "Wi-Fi"
     try:
         result = subprocess.run(
             ["ip", "route", "get", "8.8.8.8"],
@@ -137,6 +147,34 @@ def get_wifi_interface() -> str:
 def get_wifi_info() -> dict:
     info = {"ssid": "N/A", "signal": "N/A", "channel": "N/A",
             "freq": "N/A", "bssid": "N/A", "bitrate": "N/A"}
+
+    if platform.system() == "Windows":
+        try:
+            r = subprocess.run(["netsh", "wlan", "show", "interfaces"],
+                                capture_output=True, text=True, timeout=5)
+            out = r.stdout
+            m = re.search(r"^\s*SSID\s*:\s*(.+)$", out, re.MULTILINE)
+            if m:
+                info["ssid"] = m.group(1).strip()
+            m = re.search(r"BSSID\s*:\s*([0-9A-Fa-f:]+)", out)
+            if m:
+                info["bssid"] = m.group(1).strip()
+            m = re.search(r"(?:Signal|Se[ñn]al)\s*:\s*(\d+)%", out)
+            if m:
+                pct = int(m.group(1))
+                info["signal"] = round(pct / 2 - 100)  # aprox. dBm desde %
+            m = re.search(r"(?:Channel|Canal)\s*:\s*(\d+)", out)
+            if m:
+                ch = int(m.group(1))
+                info["channel"] = str(ch)
+                info["freq"] = "2.4 GHz" if ch <= 14 else "5 GHz"
+            m = re.search(r"(?:Transmit rate|Velocidad de transmisi[oó]n)\s*\(Mbps\)\s*:\s*([\d.]+)", out)
+            if m:
+                info["bitrate"] = f"{m.group(1)} Mbps"
+        except Exception:
+            pass
+        return info
+
     iface = get_wifi_interface()
     try:
         r = subprocess.run(["iw", "dev", iface, "link"],
@@ -213,9 +251,12 @@ def bytes_to_human(n: float) -> str:
 def ping_host(ip: str, timeout: float = 0.5) -> tuple:
     try:
         start = time.time()
+        if platform.system() == "Windows":
+            cmd = ["ping", "-n", "1", "-w", str(int(timeout * 1000)), ip]
+        else:
+            cmd = ["ping", "-c", "1", "-W", "1", ip]
         result = subprocess.run(
-            ["ping", "-c", "1", "-W", "1", ip],
-            capture_output=True, text=True, timeout=timeout + 1
+            cmd, capture_output=True, text=True, timeout=timeout + 1
         )
         elapsed = (time.time() - start) * 1000
         return ip, result.returncode == 0, round(elapsed, 1)
@@ -292,6 +333,38 @@ def best_vendor(mac: str, arp_vendor: str = "") -> str:
 def scan_network(sudo_password: str = "") -> list:
     devices = []
     my_ip = get_local_ip()
+
+    if platform.system() == "Windows":
+        prefix = get_network_prefix()
+        ips = [f"{prefix}.{i}" for i in range(1, 255)]
+        active = {}
+        with ThreadPoolExecutor(max_workers=100) as ex:
+            futures = {ex.submit(ping_host, ip, 0.4): ip for ip in ips}
+            for f in as_completed(futures):
+                ip, alive, lat = f.result()
+                if alive:
+                    active[ip] = lat
+
+        arp_cache = {}
+        try:
+            r = subprocess.run(["arp", "-a"], capture_output=True, text=True, timeout=5)
+            for line in r.stdout.splitlines():
+                m = re.match(r"\s*(\d+\.\d+\.\d+\.\d+)\s+([0-9a-fA-F-]{17})\s+\w+", line)
+                if m:
+                    ip, mac_dash = m.groups()
+                    arp_cache[ip] = mac_dash.replace("-", ":").upper()
+        except Exception:
+            pass
+
+        for ip, lat in sorted(active.items(), key=lambda x: int(x[0].split(".")[-1])):
+            mac = arp_cache.get(ip, "N/A")
+            devices.append({
+                "ip": ip, "mac": mac, "vendor": guess_vendor(mac),
+                "hostname": resolve_hostname(ip),
+                "is_this_pc": ip == my_ip, "latency": lat,
+            })
+        return devices
+
     iface = get_wifi_interface()
 
     # Intento 1: arp-scan (con contraseña desde la UI si se proporcionó)
@@ -358,6 +431,26 @@ def scan_network(sudo_password: str = "") -> list:
 
 def measure_latency(host: str = "8.8.8.8", count: int = 5) -> dict:
     try:
+        if platform.system() == "Windows":
+            r = subprocess.run(
+                ["ping", "-n", str(count), "-w", "2000", host],
+                capture_output=True, text=True, timeout=30
+            )
+            out = r.stdout
+            loss_m = re.search(r"\((\d+)%\s*(?:loss|p[eé]rdid[ao]s?)\)", out, re.IGNORECASE)
+            times = [float(x) for x in re.findall(r"(?:time|tiempo)[=<]\s*([\d.]+)\s*ms", out, re.IGNORECASE)]
+            avg_m = re.search(r"(?:Average|Media)\s*=\s*([\d.]+)\s*ms", out, re.IGNORECASE)
+            min_m = re.search(r"(?:Minimum|M[ií]nimo)\s*=\s*([\d.]+)\s*ms", out, re.IGNORECASE)
+            max_m = re.search(r"(?:Maximum|M[aá]ximo)\s*=\s*([\d.]+)\s*ms", out, re.IGNORECASE)
+            jitter = round(max(times) - min(times), 1) if len(times) >= 2 else None
+            return {
+                "host": host,
+                "packet_loss": int(loss_m.group(1)) if loss_m else 100,
+                "min_ms":    float(min_m.group(1)) if min_m else None,
+                "avg_ms":    float(avg_m.group(1)) if avg_m else None,
+                "max_ms":    float(max_m.group(1)) if max_m else None,
+                "jitter_ms": jitter,
+            }
         r = subprocess.run(
             ["ping", "-c", str(count), "-W", "2", host],
             capture_output=True, text=True, timeout=30
@@ -447,7 +540,9 @@ def save_alert_config(cfg: dict):
 
 
 def send_desktop_notification(title: str, body: str, urgency: str = "critical"):
-    """Envía notificación de escritorio Ubuntu via notify-send."""
+    """Envía notificación de escritorio Ubuntu via notify-send (no aplica en Windows/macOS)."""
+    if platform.system() != "Linux":
+        return
     try:
         subprocess.Popen(
             ["notify-send", "-u", urgency, "-a", "WiFi Monitor", title, body],

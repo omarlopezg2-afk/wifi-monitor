@@ -94,6 +94,7 @@ st.markdown("""
         background: #111827;
         border-radius: 10px;
         padding: 12px;
+        overflow: visible;
     }
     div[data-testid="stMetric"] label,
     div[data-testid="stMetric"] [data-testid="stMetricLabel"] {
@@ -101,6 +102,10 @@ st.markdown("""
     }
     div[data-testid="stMetric"] [data-testid="stMetricValue"] {
         color: #ffffff !important;
+        font-size: clamp(1rem, 3.2vw, 1.9rem) !important;
+        white-space: nowrap !important;
+        overflow: visible !important;
+        text-overflow: unset !important;
     }
     div[data-testid="stMetric"] [data-testid="stMetricDelta"] {
         color: #d1d5db !important;
@@ -184,7 +189,7 @@ def get_wifi_info() -> dict:
             m = re.search(r"BSSID\s*:\s*([0-9A-Fa-f:]+)", out)
             if m:
                 info["bssid"] = m.group(1).strip()
-            m = re.search(r"(?:Signal|Se[ñn]al)\s*:\s*(\d+)%", out)
+            m = re.search(r":\s*(\d{1,3})\s*%", out)
             if m:
                 pct = int(m.group(1))
                 info["signal"] = round(pct / 2 - 100)  # aprox. dBm desde %
@@ -193,9 +198,9 @@ def get_wifi_info() -> dict:
                 ch = int(m.group(1))
                 info["channel"] = str(ch)
                 info["freq"] = "2.4 GHz" if ch <= 14 else "5 GHz"
-            m = re.search(r"(?:Transmit rate|Velocidad de transmisi[oó]n)\s*\(Mbps\)\s*:\s*([\d.]+)", out)
-            if m:
-                info["bitrate"] = f"{m.group(1)} Mbps"
+            mbps_matches = re.findall(r"\(Mbps\)\s*:\s*([\d.]+)", out)
+            if mbps_matches:
+                info["bitrate"] = f"{mbps_matches[-1]} Mbps"
         except Exception:
             pass
         return info
@@ -465,18 +470,22 @@ def measure_latency(host: str = "8.8.8.8", count: int = 5) -> dict:
                 **_win_subprocess_kwargs()
             )
             out = r.stdout
-            loss_m = re.search(r"\((\d+)%\s*(?:loss|p[eé]rdid[ao]s?)\)", out, re.IGNORECASE)
-            times = [float(x) for x in re.findall(r"(?:time|tiempo)[=<]\s*([\d.]+)\s*ms", out, re.IGNORECASE)]
-            avg_m = re.search(r"(?:Average|Media)\s*=\s*([\d.]+)\s*ms", out, re.IGNORECASE)
-            min_m = re.search(r"(?:Minimum|M[ií]nimo)\s*=\s*([\d.]+)\s*ms", out, re.IGNORECASE)
-            max_m = re.search(r"(?:Maximum|M[aá]ximo)\s*=\s*([\d.]+)\s*ms", out, re.IGNORECASE)
+            loss_m = re.search(r"\((\d{1,3})%", out)
+            m = re.search(
+                r"=\s*([\d.]+)\s*ms,\s*[^=\n]+=\s*([\d.]+)\s*ms,\s*[^=\n]+=\s*([\d.]+)\s*ms",
+                out
+            )
+            min_ms = float(m.group(1)) if m else None
+            max_ms = float(m.group(2)) if m else None
+            avg_ms = float(m.group(3)) if m else None
+            times = [float(x) for x in re.findall(r"[=<]\s*([\d.]+)\s*ms\b", out)]
             jitter = round(max(times) - min(times), 1) if len(times) >= 2 else None
             return {
                 "host": host,
                 "packet_loss": int(loss_m.group(1)) if loss_m else 100,
-                "min_ms":    float(min_m.group(1)) if min_m else None,
-                "avg_ms":    float(avg_m.group(1)) if avg_m else None,
-                "max_ms":    float(max_m.group(1)) if max_m else None,
+                "min_ms":    min_ms,
+                "avg_ms":    avg_ms,
+                "max_ms":    max_ms,
                 "jitter_ms": jitter,
             }
         r = subprocess.run(

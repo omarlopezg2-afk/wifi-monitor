@@ -115,6 +115,30 @@ st.markdown("""
 #  FUNCIONES BASE DE RED
 # ══════════════════════════════════════════════
 
+def _win_subprocess_kwargs() -> dict:
+    """
+    Argumentos extra para subprocess.run en Windows:
+      - CREATE_NO_WINDOW evita que se abra una ventana de terminal visible
+        cada vez que se ejecuta ping/netsh/arp (la app viene empaquetada
+        sin consola, así que Windows abriría una nueva en cada llamada).
+      - encoding=cp<OEM> evita texto corrupto en acentos/ñ (Windows en
+        español usa la página de códigos OEM de consola, no UTF-8, para
+        la salida de ping/netsh), lo que rompía el parseo de "Señal",
+        "Mínimo", "Máximo", etc.
+    """
+    kwargs = {}
+    if platform.system() == "Windows":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        try:
+            import ctypes
+            oem_cp = ctypes.windll.kernel32.GetOEMCP()
+            kwargs["encoding"] = f"cp{oem_cp}"
+            kwargs["errors"] = "replace"
+        except Exception:
+            kwargs["encoding"] = "utf-8"
+            kwargs["errors"] = "replace"
+    return kwargs
+
 @st.cache_data(ttl=5)
 def get_wifi_interface() -> str:
     if platform.system() == "Windows":
@@ -151,7 +175,8 @@ def get_wifi_info() -> dict:
     if platform.system() == "Windows":
         try:
             r = subprocess.run(["netsh", "wlan", "show", "interfaces"],
-                                capture_output=True, text=True, timeout=5)
+                                capture_output=True, text=True, timeout=5,
+                                **_win_subprocess_kwargs())
             out = r.stdout
             m = re.search(r"^\s*SSID\s*:\s*(.+)$", out, re.MULTILINE)
             if m:
@@ -256,7 +281,8 @@ def ping_host(ip: str, timeout: float = 0.5) -> tuple:
         else:
             cmd = ["ping", "-c", "1", "-W", "1", ip]
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout + 1
+            cmd, capture_output=True, text=True, timeout=timeout + 1,
+            **_win_subprocess_kwargs()
         )
         elapsed = (time.time() - start) * 1000
         return ip, result.returncode == 0, round(elapsed, 1)
@@ -347,7 +373,8 @@ def scan_network(sudo_password: str = "") -> list:
 
         arp_cache = {}
         try:
-            r = subprocess.run(["arp", "-a"], capture_output=True, text=True, timeout=5)
+            r = subprocess.run(["arp", "-a"], capture_output=True, text=True, timeout=5,
+                                **_win_subprocess_kwargs())
             for line in r.stdout.splitlines():
                 m = re.match(r"\s*(\d+\.\d+\.\d+\.\d+)\s+([0-9a-fA-F-]{17})\s+\w+", line)
                 if m:
@@ -434,7 +461,8 @@ def measure_latency(host: str = "8.8.8.8", count: int = 5) -> dict:
         if platform.system() == "Windows":
             r = subprocess.run(
                 ["ping", "-n", str(count), "-w", "2000", host],
-                capture_output=True, text=True, timeout=30
+                capture_output=True, text=True, timeout=30,
+                **_win_subprocess_kwargs()
             )
             out = r.stdout
             loss_m = re.search(r"\((\d+)%\s*(?:loss|p[eé]rdid[ao]s?)\)", out, re.IGNORECASE)
@@ -1020,8 +1048,10 @@ elif page == t("nav_video", lang):
                 st.divider()
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric(t("metric_average", lang),  f"{lat_data['avg_ms']:.1f} ms")
-                m2.metric(t("metric_minimum", lang),    f"{lat_data['min_ms']:.1f} ms")
-                m3.metric(t("metric_jitter", lang),    f"{lat_data['jitter_ms']:.1f} ms")
+                m2.metric(t("metric_minimum", lang),
+                          f"{lat_data['min_ms']:.1f} ms" if lat_data.get("min_ms") is not None else "—")
+                m3.metric(t("metric_jitter", lang),
+                          f"{lat_data['jitter_ms']:.1f} ms" if lat_data.get("jitter_ms") is not None else "—")
                 m4.metric(t("metric_loss", lang),   f"{lat_data['packet_loss']}%")
 
         with col2:

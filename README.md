@@ -45,4 +45,4 @@ Construido con Python, Streamlit y pywebview, empaquetado con PyInstaller. Compi
 
 ## Licencia
 
-_(agrega aquí la licencia si aplica, ej. MIT)_
+_(Pendiente)_

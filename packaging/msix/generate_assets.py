@@ -1,47 +1,64 @@
-<?xml version="1.0" encoding="utf-8"?>
-<Package
-  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
-  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap rescap">
+"""
+packaging/msix/generate_assets.py
+──────────────────────────────────
+Genera los assets de imagen que exige el manifest MSIX
+(Square44x44Logo, Square150x150Logo, Wide310x150Logo, StoreLogo,
+SplashScreen) a partir de wifi_monitor.png (256x256).
 
-  <Identity
-    Name="omar.lopezg.WifiMonitor"
-    Publisher="CN=986EA72A-268C-4974-B609-1695A8FF9639"
-    Version="__VERSION__"
-    ProcessorArchitecture="x64" />
+Se ejecuta dentro del job de CI, después de build_windows_prep.py
+y antes de empaquetar con makeappx.
+"""
 
-  <Properties>
-    <DisplayName>WiFi Monitor</DisplayName>
-    <PublisherDisplayName>omar.lopezg</PublisherDisplayName>
-    <Logo>Assets\StoreLogo.png</Logo>
-  </Properties>
+from pathlib import Path
+from PIL import Image
 
-  <Resources>
-    <Resource Language="es" />
-    <Resource Language="en" />
-  </Resources>
+SRC = Path("wifi_monitor.png")
+OUT = Path("packaging/msix/Assets")
+BG = (13, 33, 55, 255)  # mismo azul oscuro del ícono placeholder
 
-  <Dependencies>
-    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
-  </Dependencies>
+SQUARE_SIZES = {
+    "Square44x44Logo.png": 44,
+    "Square150x150Logo.png": 150,
+    "StoreLogo.png": 50,
+}
 
-  <Capabilities>
-    <rescap:Capability Name="runFullTrust" />
-  </Capabilities>
+src: Image.Image
 
-  <Applications>
-    <Application Id="WifiMonitor" Executable="WiFiMonitor.exe" EntryPoint="Windows.FullTrustApplication">
-      <uap:VisualElements
-        DisplayName="WiFi Monitor"
-        Description="Monitor de red WiFi: dispositivos conectados, tráfico, velocidad e intrusos."
-        BackgroundColor="#0D2137"
-        Square150x150Logo="Assets\Square150x150Logo.png"
-        Square44x44Logo="Assets\Square44x44Logo.png">
-        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
-        <uap:SplashScreen Image="Assets\SplashScreen.png" />
-      </uap:VisualElements>
-    </Application>
-  </Applications>
 
-</Package>
+def square(size: int) -> Image.Image:
+    return src.resize((size, size), Image.LANCZOS)
+
+
+def letterbox(w: int, h: int) -> Image.Image:
+    """Centra el ícono cuadrado sobre un lienzo rectangular con fondo sólido."""
+    canvas = Image.new("RGBA", (w, h), BG)
+    scale = min(w, h) / max(src.size)
+    new_w, new_h = int(src.size[0] * scale), int(src.size[1] * scale)
+    resized = src.resize((new_w, new_h), Image.LANCZOS)
+    canvas.paste(resized, ((w - new_w) // 2, (h - new_h) // 2), resized)
+    return canvas
+
+
+def main():
+    global src
+    if not SRC.exists():
+        raise SystemExit(f"❌ No se encontró {SRC}. Este script corre desde la raíz del repo.")
+
+    OUT.mkdir(parents=True, exist_ok=True)
+    src = Image.open(SRC).convert("RGBA")
+
+    for name, size in SQUARE_SIZES.items():
+        square(size).save(OUT / name)
+        print(f"  ✅ {name} ({size}x{size})")
+
+    letterbox(310, 150).save(OUT / "Wide310x150Logo.png")
+    print("  ✅ Wide310x150Logo.png (310x150)")
+
+    letterbox(620, 300).save(OUT / "SplashScreen.png")
+    print("  ✅ SplashScreen.png (620x300)")
+
+    print(f"\nAssets generados en {OUT}/")
+
+
+if __name__ == "__main__":
+    main()

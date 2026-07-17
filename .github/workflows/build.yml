@@ -2,12 +2,15 @@
 # ─────────────────────────────────────────────────────────────────
 #  CI/CD — WiFi Monitor Builds Multiplataforma
 #
-#  Genera los tres paquetes en paralelo al hacer un tag vX.X:
+#  Genera los paquetes en paralelo al hacer un tag vX.X:
 #    Linux   → WiFiMonitor-x.x-x86_64.AppImage
 #    Windows → WiFiMonitor-Setup.exe (firmado con certificado de código)
+#    Windows → WifiMonitor.msix (para submission en Microsoft Store)
 #    macOS   → WiFiMonitor-x.x-macOS.dmg
 #
-#  Los adjunta automáticamente al Release de GitHub.
+#  Los instaladores directos (.exe/.dmg/.AppImage/.deb) se adjuntan
+#  automáticamente al Release de GitHub. El .msix NO se adjunta ahí:
+#  es solo para subir a Partner Center, no para descarga pública.
 # ─────────────────────────────────────────────────────────────────
 
 name: Build Multiplataforma
@@ -17,6 +20,11 @@ on:
     tags:
       - "v*"          # Dispara al crear un tag como v2.0, v2.1, etc.
   workflow_dispatch:  # Permite disparar manualmente desde la UI
+    inputs:
+      msix_version:
+        description: "Versión MSIX manual (ej. 6.10.0.0). Vacío = se detecta del tag."
+        required: false
+        default: ""
 
 jobs:
 
@@ -199,20 +207,11 @@ jobs:
             Write-Host "Firmante: $($sig.SignerCertificate.Subject)"
           }
 
-          # No hay firma en absoluto: esto SÍ es un fallo real.
           if ($null -eq $sig.SignerCertificate) {
             Write-Error "El binario no tiene ninguna firma digital. La firma nunca se aplicó."
             exit 1
           }
 
-          # Hay firma y hay certificado de firmante. El único motivo por el
-          # que .NET puede reportar Status distinto de 'Valid' aquí es la
-          # cadena de confianza (autofirmado = raíz no reconocida por
-          # Windows), lo cual es esperado y NO indica una firma rota.
-          # Distintas versiones de PowerShell reportan esto como
-          # 'UntrustedRoot' o como 'UnknownError' con el mismo StatusMessage
-          # de fondo, así que aceptamos ambos como "esperado" siempre que
-          # haya un firmante presente.
           if ($sig.Status -eq 'Valid') {
             Write-Host "✅ Firma válida y con cadena de confianza completa."
           } else {
@@ -233,6 +232,114 @@ jobs:
         with:
           name: windows-installer
           path: installer_output\WiFiMonitor-Setup.exe
+
+  # ─────────────────────────────────────────────
+  #  WINDOWS — Paquete MSIX (Microsoft Store)
+  # ─────────────────────────────────────────────
+  build-msix:
+    name: 📦 MSIX (Microsoft Store)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias Python
+        run: |
+          pip install --upgrade pyinstaller streamlit plotly pandas psutil speedtest-cli pywebview pythonnet pillow
+
+      - name: Compilar bundle PyInstaller (onedir)
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: "utf-8"
+        run: python build_windows_prep.py
+
+      - name: Generar assets del paquete (logos/splash)
+        run: python packaging/msix/generate_assets.py
+
+      - name: Calcular versión MSIX
+        id: ver
+        shell: pwsh
+        run: |
+          $manualVersion = "${{ github.event.inputs.msix_version }}"
+          if (-not [string]::IsNullOrWhiteSpace($manualVersion)) {
+            $version = $manualVersion
+          } elseif ("${{ github.ref_name }}" -match '^v?(\d+)\.(\d+)(\.(\d+))?') {
+            $major = $Matches[1]; $minor = $Matches[2]
+            $patch = if ($Matches[4]) { $Matches[4] } else { "0" }
+            $version = "$major.$minor.$patch.0"
+          } else {
+            $version = "1.0.0.0"
+          }
+          Write-Host "Versión MSIX: $version"
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Armar carpeta del paquete
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path msix_root | Out-Null
+          Copy-Item -Path "dist\WiFiMonitor\*" -Destination "msix_root" -Recurse -Force
+          New-Item -ItemType Directory -Force -Path "msix_root\Assets" | Out-Null
+          Copy-Item -Path "packaging\msix\Assets\*" -Destination "msix_root\Assets" -Force
+          (Get-Content "packaging\msix\AppxManifest.template.xml") `
+            -replace '__VERSION__', '${{ steps.ver.outputs.version }}' |
+            Set-Content "msix_root\AppxManifest.xml" -Encoding UTF8
+
+      - name: Empaquetar con makeappx
+        shell: pwsh
+        run: |
+          $makeappx = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\makeappx.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          Write-Host "Usando makeappx: $($makeappx.FullName)"
+          & $makeappx.FullName pack /d msix_root /p WifiMonitor.msix /o
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "makeappx devolvió código de error $LASTEXITCODE."
+            exit 1
+          }
+
+      - name: Generar certificado de prueba y firmar el .msix
+        shell: pwsh
+        run: |
+          # Certificado efímero: se genera de cero en cada build, solo
+          # para que el paquete pase la validación de identidad al
+          # subirlo a Partner Center y para pruebas de sideload locales.
+          # Microsoft vuelve a firmar el paquete final con su propio
+          # certificado durante la certificación — esto NO reemplaza eso.
+          $cert = New-SelfSignedCertificate `
+            -Type Custom `
+            -Subject "CN=986EA72A-268C-4974-B609-1695A8FF9639" `
+            -KeyUsage DigitalSignature `
+            -FriendlyName "WiFi Monitor Test Cert" `
+            -CertStoreLocation "Cert:\CurrentUser\My" `
+            -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
+
+          $pwd = ConvertTo-SecureString -String "temporal" -Force -AsPlainText
+          Export-PfxCertificate -Cert $cert -FilePath test_cert.pfx -Password $pwd | Out-Null
+          Export-Certificate -Cert $cert -FilePath WifiMonitor_TestCert.cer | Out-Null
+
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          & $signtool.FullName sign /fd SHA256 /f test_cert.pfx /p "temporal" WifiMonitor.msix
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "signtool devolvió código de error $LASTEXITCODE al firmar el .msix."
+            exit 1
+          }
+          Write-Host "✅ .msix firmado con certificado de prueba (Subject coincide con el Publisher)."
+          Remove-Item test_cert.pfx -ErrorAction SilentlyContinue
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: msix-package
+          path: |
+            WifiMonitor.msix
+            WifiMonitor_TestCert.cer
 
   # ─────────────────────────────────────────────
   #  macOS — DMG
@@ -272,7 +379,7 @@ jobs:
           path: WiFiMonitor-*.dmg
 
   # ─────────────────────────────────────────────
-  #  RELEASE — Adjuntar los tres archivos
+  #  RELEASE — Adjuntar los instaladores directos
   # ─────────────────────────────────────────────
   release:
     name: 📦 Crear Release
@@ -310,3 +417,6 @@ jobs:
 
             > **macOS**: Si Gatekeeper bloquea la app, ir a Ajustes → Privacidad y seguridad → Abrir igualmente.
             > Esta versión es solo para Mac con Apple Silicon (M1 o más nuevo). Soporte para Mac Intel discontinuado.
+
+            > **Microsoft Store**: la versión MSIX de este tag se generó también en este run de Actions
+            > (artifact `msix-package`, visible en la pestaña Actions) y está pendiente de subir a Partner Center.

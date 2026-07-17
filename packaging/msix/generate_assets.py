@@ -9,8 +9,15 @@ Se ejecuta dentro del job de CI, después de build_windows_prep.py
 y antes de empaquetar con makeappx.
 """
 
+import sys
 from pathlib import Path
 from PIL import Image
+
+# ── Fix encoding para Windows (cp1252 no soporta emojis/cajas Unicode) ──
+if sys.platform == "win32":
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 SRC = Path("wifi_monitor.png")
 OUT = Path("packaging/msix/Assets")
@@ -42,20 +49,20 @@ def letterbox(w: int, h: int) -> Image.Image:
 def main():
     global src
     if not SRC.exists():
-        raise SystemExit(f"❌ No se encontró {SRC}. Este script corre desde la raíz del repo.")
+        raise SystemExit(f"ERROR: No se encontró {SRC}. Este script corre desde la raíz del repo.")
 
     OUT.mkdir(parents=True, exist_ok=True)
     src = Image.open(SRC).convert("RGBA")
 
     for name, size in SQUARE_SIZES.items():
         square(size).save(OUT / name)
-        print(f"  ✅ {name} ({size}x{size})")
+        print(f"  OK {name} ({size}x{size})")
 
     letterbox(310, 150).save(OUT / "Wide310x150Logo.png")
-    print("  ✅ Wide310x150Logo.png (310x150)")
+    print("  OK Wide310x150Logo.png (310x150)")
 
     letterbox(620, 300).save(OUT / "SplashScreen.png")
-    print("  ✅ SplashScreen.png (620x300)")
+    print("  OK SplashScreen.png (620x300)")
 
     print(f"\nAssets generados en {OUT}/")
 

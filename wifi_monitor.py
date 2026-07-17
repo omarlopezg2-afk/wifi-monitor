@@ -702,7 +702,7 @@ def run_speedtest() -> dict:
         res = s.results.dict()
         return {
             "success": True,
-            "ping_ms": round(res.get("ping", 0.0), 1),
+            "ping_ms": round(res.get("ping", 0.0), 1) if 0 < res.get("ping", 0.0) < 5000 else None,
             "download_mbps": round(download, 2),
             "upload_mbps": round(upload, 2),
             "server": (res.get("server") or {}).get("sponsor", ""),
@@ -1124,7 +1124,7 @@ elif page == t("nav_speed", lang):
             c1, c2, c3 = st.columns(3)
             c1.metric(t("metric_download", lang), f"{dl:.1f} Mbps", speed_label(dl))
             c2.metric(t("metric_upload", lang),   f"{ul:.1f} Mbps", speed_label(ul))
-            c3.metric(t("metric_ping", lang),     f"{pi:.0f} ms")
+            c3.metric(t("metric_ping", lang),     f"{pi:.0f} ms" if pi is not None else "N/D")
 
             # Referencia por uso
             st.divider()

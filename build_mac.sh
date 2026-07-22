@@ -32,7 +32,7 @@
 set -e
 
 APP_NAME="WiFiMonitor"
-VERSION="2.0"
+VERSION="${VERSION:-2.0}"
 BUNDLE_ID="com.omarlopez.wifimonitor"
 ARCH_NAME="$(uname -m)"
 DMG_OUT="${APP_NAME}-${VERSION}-macOS-${ARCH_NAME}.dmg"

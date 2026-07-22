@@ -71,6 +71,13 @@ jobs:
   build-linux:
     name: 🐧 Linux AppImage
     runs-on: ubuntu-22.04
+    needs: prep
+    env:
+      # build_appimage.sh y build_deb.sh usan VERSION si está definida,
+      # y si no, caen a GITHUB_REF_NAME — que con "Run workflow" es el
+      # nombre de la rama (ej. "main"), no la versión. Se la pasamos
+      # explícita para que ambos scripts queden igual sin tocarlos.
+      VERSION: ${{ needs.prep.outputs.version }}
 
     steps:
       - name: Checkout
@@ -390,6 +397,12 @@ jobs:
     # poder asignarse un runner. Apple además ya no da soporte a
     # x86_64, así que se deja únicamente Apple Silicon (arm64).
     runs-on: macos-14
+    needs: prep
+    env:
+      # Mismo motivo que en el job de Linux: si build_mac.sh usa
+      # GITHUB_REF_NAME como respaldo, con "Run workflow" eso sería
+      # el nombre de la rama, no la versión.
+      VERSION: ${{ needs.prep.outputs.version }}
 
     steps:
       - name: Checkout

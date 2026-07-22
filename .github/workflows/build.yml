@@ -2,7 +2,7 @@
 # ─────────────────────────────────────────────────────────────────
 #  CI/CD — WiFi Monitor Builds Multiplataforma
 #
-#  Genera los paquetes en paralelo al hacer un tag vX.X:
+#  Genera los paquetes en paralelo:
 #    Linux   → WiFiMonitor-x.x-x86_64.AppImage
 #    Windows → WiFiMonitor-Setup.exe (firmado con certificado de código)
 #    Windows → WifiMonitor.msix (para submission en Microsoft Store)
@@ -12,6 +12,17 @@
 #  al Release de GitHub. Windows se distribuye únicamente vía Microsoft
 #  Store: ni el .exe ni el .msix se publican como asset del Release —
 #  el .msix es solo para subir a Partner Center.
+#
+#  CÓMO DISPARAR UN RELEASE (forma recomendada):
+#    Actions → Build Multiplataforma → "Run workflow" → escribe la
+#    versión (ej. 6.18) → Run. El propio workflow crea el tag y el
+#    release desde cero, sin conflictos.
+#
+#  ⚠️ Si en vez de eso creas el tag desde "Draft a new release" en la
+#  página de Releases y le das clic a "Publish release", el release
+#  nace YA publicado (inmutable) antes de que el workflow pueda
+#  subirle los instaladores, y el job de release siempre va a fallar.
+#  Usa "Run workflow" para evitar ese problema.
 # ─────────────────────────────────────────────────────────────────
 
 name: Build Multiplataforma
@@ -19,15 +30,40 @@ name: Build Multiplataforma
 on:
   push:
     tags:
-      - "v*"          # Dispara al crear un tag como v2.0, v2.1, etc.
-  workflow_dispatch:  # Permite disparar manualmente desde la UI
+      - "v*"          # Disparo alterno si alguna vez empujas un tag por git.
+  workflow_dispatch:  # Forma recomendada de disparar un release.
     inputs:
-      msix_version:
-        description: "Versión MSIX manual (ej. 6.10.0.0). Vacío = se detecta del tag."
-        required: false
-        default: ""
+      version:
+        description: "Versión a liberar (ej. 6.18)"
+        required: true
 
 jobs:
+
+  # ─────────────────────────────────────────────
+  #  PREP — Calcula la versión y el tag del release
+  # ─────────────────────────────────────────────
+  prep:
+    name: 🧭 Calcular versión
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.set.outputs.version }}
+      tag: ${{ steps.set.outputs.tag }}
+
+    steps:
+      - name: Determinar versión y tag
+        id: set
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ github.event.inputs.version }}"
+            tag="v${version}"
+          else
+            tag="${{ github.ref_name }}"
+            version="${tag#v}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "▶️ Versión: $version — Tag: $tag"
 
   # ─────────────────────────────────────────────
   #  LINUX — AppImage
@@ -240,6 +276,7 @@ jobs:
   build-msix:
     name: 📦 MSIX (Microsoft Store)
     runs-on: windows-latest
+    needs: prep
 
     steps:
       - name: Checkout
@@ -270,10 +307,7 @@ jobs:
         id: ver
         shell: pwsh
         run: |
-          $manualVersion = "${{ github.event.inputs.msix_version }}"
-          if (-not [string]::IsNullOrWhiteSpace($manualVersion)) {
-            $version = $manualVersion
-          } elseif ("${{ github.ref_name }}" -match '^v?(\d+)\.(\d+)(\.(\d+))?') {
+          if ("${{ needs.prep.outputs.version }}" -match '^(\d+)\.(\d+)(\.(\d+))?$') {
             $major = $Matches[1]; $minor = $Matches[2]
             $patch = if ($Matches[4]) { $Matches[4] } else { "0" }
             $version = "$major.$minor.$patch.0"
@@ -387,9 +421,8 @@ jobs:
   # ─────────────────────────────────────────────
   release:
     name: 📦 Crear Release
-    needs: [build-linux, build-windows, build-mac]
+    needs: [prep, build-linux, build-windows, build-mac]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
 
     permissions:
       contents: write
@@ -403,13 +436,15 @@ jobs:
       - name: Subir assets a un release en borrador
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.prep.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           draft: true
           files: |
             WiFiMonitor-*.AppImage
             WiFiMonitor_*.deb
             WiFiMonitor-*.dmg
           body: |
-            ## WiFi Monitor ${{ github.ref_name }}
+            ## WiFi Monitor ${{ needs.prep.outputs.tag }}
 
             ### Descargas
             | Plataforma | Archivo | Instrucciones |
@@ -425,4 +460,4 @@ jobs:
       - name: Publicar el release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit ${{ github.ref_name }} --draft=false
+        run: gh release edit ${{ needs.prep.outputs.tag }} --draft=false

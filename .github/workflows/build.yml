@@ -1,4 +1,391 @@
-release:
+# .github/workflows/build.yml
+# ─────────────────────────────────────────────────────────────────
+#  CI/CD — WiFi Monitor Builds Multiplataforma
+#
+#  Genera los paquetes en paralelo al hacer un tag vX.X:
+#    Linux   → WiFiMonitor-x.x-x86_64.AppImage
+#    Windows → WiFiMonitor-Setup.exe (firmado con certificado de código)
+#    Windows → WifiMonitor.msix (para submission en Microsoft Store)
+#    macOS   → WiFiMonitor-x.x-macOS.dmg
+#
+#  Solo Linux y macOS (.AppImage/.deb/.dmg) se adjuntan automáticamente
+#  al Release de GitHub. Windows se distribuye únicamente vía Microsoft
+#  Store: ni el .exe ni el .msix se publican como asset del Release —
+#  el .msix es solo para subir a Partner Center.
+# ─────────────────────────────────────────────────────────────────
+
+name: Build Multiplataforma
+
+on:
+  push:
+    tags:
+      - "v*"          # Dispara al crear un tag como v2.0, v2.1, etc.
+  workflow_dispatch:  # Permite disparar manualmente desde la UI
+    inputs:
+      msix_version:
+        description: "Versión MSIX manual (ej. 6.10.0.0). Vacío = se detecta del tag."
+        required: false
+        default: ""
+
+jobs:
+
+  # ─────────────────────────────────────────────
+  #  LINUX — AppImage
+  # ─────────────────────────────────────────────
+  build-linux:
+    name: 🐧 Linux AppImage
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias del sistema
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libfuse2 patchelf wireless-tools \
+            iproute2 net-tools arp-scan nmap iputils-ping libnotify-bin \
+            gir1.2-gtk-3.0 gir1.2-webkit2-4.1 python3-gi python3-gi-cairo \
+            libgirepository1.0-dev gcc libcairo2-dev pkg-config python3-dev
+
+      - name: Instalar dependencias Python
+        run: |
+          pip install --upgrade pyinstaller streamlit plotly pandas psutil speedtest-cli pywebview "PyGObject<3.51"
+
+      - name: Compilar con PyInstaller
+        run: |
+          pyinstaller \
+            --noconfirm --onedir --windowed \
+            --name WiFiMonitor \
+            --add-data "wifi_monitor.py:." \
+            --add-data "i18n.py:." \
+            --add-data "oui_db.json:." \
+            --hidden-import speedtest \
+            --hidden-import streamlit \
+            --hidden-import streamlit.web.cli \
+            --hidden-import streamlit.runtime.scriptrunner \
+            --hidden-import i18n \
+            --hidden-import altair \
+            --hidden-import webview \
+            --hidden-import webview.platforms.gtk \
+            --collect-all streamlit \
+            --collect-all altair \
+            --collect-all webview \
+            launcher.py
+
+      - name: Descargar appimagetool
+        run: |
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+
+      - name: Construir AppDir y empaquetar
+        run: |
+          bash build_appimage.sh
+
+      - name: Construir paquete .deb
+        run: |
+          bash build_deb.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            WiFiMonitor-*.AppImage
+            WiFiMonitor_*.deb
+
+  # ─────────────────────────────────────────────
+  #  WINDOWS — Instalador .exe (firmado)
+  # ─────────────────────────────────────────────
+  build-windows:
+    name: 🪟 Windows Installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias Python
+        run: |
+          pip install --upgrade pyinstaller streamlit plotly pandas psutil speedtest-cli pywebview pythonnet
+
+      - name: Compilar bundle PyInstaller
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: "utf-8"
+        run: python build_windows_prep.py
+
+      - name: Instalar Inno Setup
+        run: |
+          choco install innosetup --no-progress -y
+
+      - name: Compilar instalador
+        run: |
+          iscc WiFiMonitor-Setup.iss
+
+      # ── Firma de código ────────────────────────────────────
+      # El certificado .pfx viaja como secret en base64 y se
+      # reconstruye aquí en disco solo durante el job; se borra
+      # al final aunque falle un paso anterior.
+      - name: Reconstruir certificado .pfx desde el secret
+        shell: pwsh
+        env:
+          BASE64_CERTIFICATE: ${{ secrets.BASE64_CERTIFICATE }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:BASE64_CERTIFICATE)) {
+            Write-Error "El secret BASE64_CERTIFICATE está vacío o no se cargó."
+            exit 1
+          }
+          $clean = $env:BASE64_CERTIFICATE.Trim() -replace '\s', ''
+          $bytes = [Convert]::FromBase64String($clean)
+          $pfxPath = "$env:RUNNER_TEMP\codesign.pfx"
+          [IO.File]::WriteAllBytes($pfxPath, $bytes)
+          $size = (Get-Item $pfxPath).Length
+          Write-Host "Certificado reconstruido: $size bytes"
+          if ($size -lt 100) {
+            Write-Error "El .pfx reconstruido es sospechosamente pequeño ($size bytes). El secret probablemente está mal."
+            exit 1
+          }
+
+      - name: Firmar el instalador con signtool
+        shell: pwsh
+        env:
+          BASE64_CERTIFICATE_PSW: ${{ secrets.BASE64_CERTIFICATE_PSW }}
+        run: |
+          $pfxPath = "$env:RUNNER_TEMP\codesign.pfx"
+
+          # Validar que la contraseña realmente abre el .pfx antes de firmar
+          try {
+            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(
+              $pfxPath, $env:BASE64_CERTIFICATE_PSW,
+              [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable
+            )
+            Write-Host "✅ Certificado abierto correctamente: $($cert.Subject)"
+            Write-Host "Vigencia: $($cert.NotBefore) -> $($cert.NotAfter)"
+          } catch {
+            Write-Error "No se pudo abrir el .pfx con la contraseña dada. Revisa el secret BASE64_CERTIFICATE_PSW. Detalle: $_"
+            exit 1
+          }
+
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          Write-Host "Usando signtool: $($signtool.FullName)"
+
+          & $signtool.FullName sign `
+            /f $pfxPath `
+            /p "$env:BASE64_CERTIFICATE_PSW" `
+            /fd SHA256 `
+            /tr http://timestamp.digicert.com `
+            /td SHA256 `
+            /v `
+            installer_output\WiFiMonitor-Setup.exe
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "signtool sign devolvió código de error $LASTEXITCODE. La firma NO se aplicó."
+            exit 1
+          }
+          Write-Host "✅ signtool sign terminó con éxito (exit code 0)"
+
+      - name: Verificar firma
+        shell: pwsh
+        run: |
+          $exePath = (Resolve-Path "installer_output\WiFiMonitor-Setup.exe").Path
+          $sig = Get-AuthenticodeSignature -FilePath $exePath
+
+          Write-Host "Estado de la firma: $($sig.Status)"
+          Write-Host "Mensaje: $($sig.StatusMessage)"
+          if ($sig.SignerCertificate) {
+            Write-Host "Firmante: $($sig.SignerCertificate.Subject)"
+          }
+
+          if ($null -eq $sig.SignerCertificate) {
+            Write-Error "El binario no tiene ninguna firma digital. La firma nunca se aplicó."
+            exit 1
+          }
+
+          if ($sig.Status -eq 'Valid') {
+            Write-Host "✅ Firma válida y con cadena de confianza completa."
+          } else {
+            Write-Host "✅ Firma Authenticode presente (firmante: $($sig.SignerCertificate.Subject))."
+            Write-Host "ℹ️  Status '$($sig.Status)' es esperado con un certificado autofirmado:"
+            Write-Host "    la cadena no llega a una CA raíz reconocida por Windows."
+            Write-Host "    Esto no significa que la firma esté rota."
+          }
+
+      - name: Borrar certificado del disco
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item "$env:RUNNER_TEMP\codesign.pfx" -ErrorAction SilentlyContinue
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: installer_output\WiFiMonitor-Setup.exe
+
+  # ─────────────────────────────────────────────
+  #  WINDOWS — Paquete MSIX (Microsoft Store)
+  # ─────────────────────────────────────────────
+  build-msix:
+    name: 📦 MSIX (Microsoft Store)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias Python
+        run: |
+          pip install --upgrade pyinstaller streamlit plotly pandas psutil speedtest-cli pywebview pythonnet pillow
+
+      - name: Compilar bundle PyInstaller (onedir)
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: "utf-8"
+        run: python build_windows_prep.py
+
+      - name: Generar assets del paquete (logos/splash)
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: "utf-8"
+        run: python packaging/msix/generate_assets.py
+
+      - name: Calcular versión MSIX
+        id: ver
+        shell: pwsh
+        run: |
+          $manualVersion = "${{ github.event.inputs.msix_version }}"
+          if (-not [string]::IsNullOrWhiteSpace($manualVersion)) {
+            $version = $manualVersion
+          } elseif ("${{ github.ref_name }}" -match '^v?(\d+)\.(\d+)(\.(\d+))?') {
+            $major = $Matches[1]; $minor = $Matches[2]
+            $patch = if ($Matches[4]) { $Matches[4] } else { "0" }
+            $version = "$major.$minor.$patch.0"
+          } else {
+            $version = "1.0.0.0"
+          }
+          Write-Host "Versión MSIX: $version"
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Armar carpeta del paquete
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path msix_root | Out-Null
+          Copy-Item -Path "dist\WiFiMonitor\*" -Destination "msix_root" -Recurse -Force
+          New-Item -ItemType Directory -Force -Path "msix_root\Assets" | Out-Null
+          Copy-Item -Path "packaging\msix\Assets\*" -Destination "msix_root\Assets" -Force
+          (Get-Content "packaging\msix\AppxManifest.template.xml") `
+            -replace '__VERSION__', '${{ steps.ver.outputs.version }}' |
+            Set-Content "msix_root\AppxManifest.xml" -Encoding UTF8
+
+      - name: Empaquetar con makeappx
+        shell: pwsh
+        run: |
+          $makeappx = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\makeappx.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          Write-Host "Usando makeappx: $($makeappx.FullName)"
+          & $makeappx.FullName pack /d msix_root /p WifiMonitor.msix /o
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "makeappx devolvió código de error $LASTEXITCODE."
+            exit 1
+          }
+
+      - name: Generar certificado de prueba y firmar el .msix
+        shell: pwsh
+        run: |
+          # Certificado efímero: se genera de cero en cada build, solo
+          # para que el paquete pase la validación de identidad al
+          # subirlo a Partner Center y para pruebas de sideload locales.
+          # Microsoft vuelve a firmar el paquete final con su propio
+          # certificado durante la certificación — esto NO reemplaza eso.
+          $cert = New-SelfSignedCertificate `
+            -Type Custom `
+            -Subject "CN=986EA72A-268C-4974-B609-1695A8FF9639" `
+            -KeyUsage DigitalSignature `
+            -FriendlyName "WiFi Monitor Test Cert" `
+            -CertStoreLocation "Cert:\CurrentUser\My" `
+            -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
+
+          $pwd = ConvertTo-SecureString -String "temporal" -Force -AsPlainText
+          Export-PfxCertificate -Cert $cert -FilePath test_cert.pfx -Password $pwd | Out-Null
+          Export-Certificate -Cert $cert -FilePath WifiMonitor_TestCert.cer | Out-Null
+
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          & $signtool.FullName sign /fd SHA256 /f test_cert.pfx /p "temporal" WifiMonitor.msix
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "signtool devolvió código de error $LASTEXITCODE al firmar el .msix."
+            exit 1
+          }
+          Write-Host "✅ .msix firmado con certificado de prueba (Subject coincide con el Publisher)."
+          Remove-Item test_cert.pfx -ErrorAction SilentlyContinue
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: msix-package
+          path: |
+            WifiMonitor.msix
+            WifiMonitor_TestCert.cer
+
+  # ─────────────────────────────────────────────
+  #  macOS — DMG
+  # ─────────────────────────────────────────────
+  build-mac:
+    name: 🍎 macOS DMG (Apple Silicon)
+    # Nota: se eliminó el build para Intel (x86_64). El runner macos-13
+    # que se usaba para esa arquitectura fue retirado por GitHub el
+    # 8 de diciembre de 2025, lo cual dejaba este job colgado sin
+    # poder asignarse un runner. Apple además ya no da soporte a
+    # x86_64, así que se deja únicamente Apple Silicon (arm64).
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias Python
+        run: |
+          pip install --upgrade pyinstaller streamlit plotly pandas psutil speedtest-cli pywebview pyobjc-core pyobjc-framework-Cocoa pyobjc-framework-WebKit
+
+      - name: Instalar create-dmg
+        run: brew install create-dmg
+
+      - name: Build DMG
+        run: bash build_mac.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-dmg
+          path: WiFiMonitor-*.dmg
+
+  # ─────────────────────────────────────────────
+  #  RELEASE — Adjuntar los instaladores directos
+  # ─────────────────────────────────────────────
+  release:
     name: 📦 Crear Release
     needs: [build-linux, build-windows, build-mac]
     runs-on: ubuntu-latest

@@ -473,4 +473,4 @@ jobs:
       - name: Publicar el release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit ${{ needs.prep.outputs.tag }} --draft=false
+        run: gh release edit ${{ needs.prep.outputs.tag }} --repo ${{ github.repository }} --draft=false

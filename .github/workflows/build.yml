@@ -160,7 +160,9 @@ jobs:
 
       - name: Instalar dependencias Python
         run: |
-          pip install --upgrade pyinstaller streamlit plotly pandas psutil speedtest-cli pywebview pythonnet
+          # winrt-*: leer la licencia de la Microsoft Store (modo gratuito vs. versión completa).
+          # Sin estos paquetes la app no falla: funciona en modo gratuito.
+          pip install --upgrade pyinstaller streamlit plotly pandas psutil speedtest-cli pywebview pythonnet winrt-Windows.Services.Store winrt-Windows.Foundation
 
       - name: Compilar bundle PyInstaller
         env:
@@ -296,7 +298,9 @@ jobs:
 
       - name: Instalar dependencias Python
         run: |
-          pip install --upgrade pyinstaller streamlit plotly pandas psutil speedtest-cli pywebview pythonnet pillow
+          # winrt-*: leer la licencia de la Microsoft Store (modo gratuito vs. versión completa).
+          # Sin estos paquetes la app no falla: funciona en modo gratuito.
+          pip install --upgrade pyinstaller streamlit plotly pandas psutil speedtest-cli pywebview pythonnet pillow winrt-Windows.Services.Store winrt-Windows.Foundation
 
       - name: Compilar bundle PyInstaller (onedir)
         env:

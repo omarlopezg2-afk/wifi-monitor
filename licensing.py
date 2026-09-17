@@ -104,6 +104,25 @@ def _write_json(path: Path, data: dict) -> None:
         pass
 
 
+# Testigo en disco: si en algún momento se confirmó una compra, se recuerda.
+# Sirve para no degradar a un cliente que YA pagó cuando la consulta a la Store
+# falla (sin red, error transitorio, API caída). Sin este testigo, un fallo de
+# consulta lo dejaría viendo el paywall teniendo licencia.
+_PREMIUM_MARKER = DATA_DIR / "premium_confirmed"
+
+
+def _remember_premium() -> None:
+    try:
+        _PREMIUM_MARKER.parent.mkdir(parents=True, exist_ok=True)
+        _PREMIUM_MARKER.write_text(datetime.now().strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _was_premium() -> bool:
+    return _PREMIUM_MARKER.exists()
+
+
 # ─────────────────────────────────────────────
 # FUENTES DE LICENCIA
 # ─────────────────────────────────────────────
@@ -192,15 +211,28 @@ def license_state(force: bool = False) -> dict:
             return dict(_cache["state"])
 
     state = {"premium": False, "source": "free", "is_trial": False, "detail": ""}
+    store_unavailable = False
     for probe in (_local_license, _store_license):
         try:
             got = probe()
         except Exception as exc:                      # nunca romper la app
             got = None
             state["detail"] = f"{probe.__name__}: {exc}"
+        if got is None and probe is _store_license:
+            store_unavailable = True
         if got:
             state = got
             break
+
+    # Si no se pudo consultar la Store y este equipo ya había confirmado una
+    # compra, se mantiene premium: un fallo de red nunca debe cobrar dos veces
+    # en forma de paywall.
+    if not state.get("premium") and store_unavailable and _was_premium():
+        state = {"premium": True, "source": "cached_license", "is_trial": False,
+                 "detail": "Store no respondió; se usa la compra ya confirmada"}
+
+    if state.get("premium"):
+        _remember_premium()
 
     with _lock:
         _cache["state"] = dict(state)

@@ -21,6 +21,7 @@ import json
 import csv
 import os
 import sys
+import shutil
 import threading
 import pandas as pd
 import plotly.graph_objects as go
@@ -815,17 +816,76 @@ def run_speedtest() -> dict:
 #  NUEVA: DETECTOR DE INTRUSOS
 # ══════════════════════════════════════════════
 
+KNOWN_BACKUP_DIR = DATA_DIR / "known_devices_backups"
+KNOWN_MACS_BAK   = DATA_DIR / "known_devices.json.bak"
+KEEP_BACKUPS     = 10
+
+
+def _backup_known_devices() -> None:
+    """Copia de seguridad antes de sobrescribir la lista blanca.
+
+    La lista blanca es trabajo manual del usuario (aprobar cada aparato una sola
+    vez). Un archivo borrado o vaciado no debe costarle rehacerlo: se guarda una
+    copia rotativa y una "última conocida" de acceso directo.
+    """
+    try:
+        if not KNOWN_MACS_JSON.exists() or KNOWN_MACS_JSON.stat().st_size < 3:
+            return
+        KNOWN_BACKUP_DIR.mkdir(exist_ok=True)
+        shutil.copy2(KNOWN_MACS_JSON, KNOWN_MACS_BAK)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        shutil.copy2(KNOWN_MACS_JSON, KNOWN_BACKUP_DIR / f"known_devices-{stamp}.json")
+        for old in sorted(KNOWN_BACKUP_DIR.glob("known_devices-*.json"))[:-KEEP_BACKUPS]:
+            try:
+                old.unlink()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _latest_known_backup() -> Path | None:
+    """La copia de seguridad más reciente, o None si no hay ninguna."""
+    candidates = ([KNOWN_MACS_BAK] if KNOWN_MACS_BAK.exists() else []) + \
+                 sorted(KNOWN_BACKUP_DIR.glob("known_devices-*.json"), reverse=True)
+    for c in candidates:
+        try:
+            if c.exists() and c.stat().st_size > 2:
+                return c
+        except Exception:
+            continue
+    return None
+
+
 def load_known_devices() -> dict:
-    """Carga la lista blanca de MACs conocidas."""
+    """Carga la lista blanca de MACs conocidas.
+
+    Si el archivo no está o quedó vacío, recupera la última copia de seguridad en
+    lugar de dar por desconocidos todos los aparatos — que es lo que se ve como
+    "intrusos" por toda la casa.
+    """
     if KNOWN_MACS_JSON.exists():
         try:
-            return json.loads(KNOWN_MACS_JSON.read_text())
+            data = json.loads(KNOWN_MACS_JSON.read_text())
+            if data:
+                return data
+        except Exception:
+            pass
+    backup = _latest_known_backup()
+    if backup:
+        try:
+            data = json.loads(backup.read_text())
+            if data:
+                KNOWN_MACS_JSON.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+                return data
         except Exception:
             pass
     return {}
 
 
-def save_known_devices(devices: dict):
+def save_known_devices(devices: dict, backup: bool = True):
+    if backup:
+        _backup_known_devices()
     KNOWN_MACS_JSON.write_text(json.dumps(devices, indent=2, ensure_ascii=False))
 
 

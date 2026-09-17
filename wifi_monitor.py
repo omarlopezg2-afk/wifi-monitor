@@ -31,6 +31,101 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from i18n import t, LANGUAGES, DEFAULT_LANG
 
 # ─────────────────────────────────────────────
+# LICENCIA / MODO GRATUITO
+# ─────────────────────────────────────────────
+try:
+    from licensing import (is_premium                as _is_premium,
+                           paywall_text              as _paywall_text,
+                           review_text               as _review_text,
+                           mark_value_event          as _mark_value_event,
+                           review_prompt_due         as _review_prompt_due,
+                           mark_review_prompt_shown  as _mark_review_shown,
+                           open_store_page           as _open_store_page)
+    _LICENSING = True
+except Exception:
+    _LICENSING = False
+
+
+def is_premium() -> bool:
+    """¿Puede el usuario entrar a las funciones de pago?
+
+    Si el módulo licensing falta (bundle incompleto), se asume premium: es
+    preferible regalar la app a dejar bloqueado a alguien que ya pagó.
+    """
+    if not _LICENSING:
+        return True
+    try:
+        return _is_premium()
+    except Exception:
+        return True
+
+
+def track_event(name: str) -> None:
+    """Registra un momento de valor real (para pedir la reseña después)."""
+    if _LICENSING:
+        try:
+            _mark_value_event(name)
+        except Exception:
+            pass
+
+
+PAYWALL_UI = {
+    "es": {"back": "Volver a las páginas gratis → usa el menú de la izquierda."},
+    "en": {"back": "Back to the free pages → use the menu on the left."},
+    "pt": {"back": "Voltar às páginas gratuitas → use o menu da esquerda."},
+    "fr": {"back": "Retour aux pages gratuites → utilisez le menu de gauche."},
+    "de": {"back": "Zurück zu den Gratis-Seiten → Menü links benutzen."},
+    "it": {"back": "Torna alle pagine gratuite → usa il menu a sinistra."},
+}
+
+
+def _render_paywall(lang: str, feature_key: str = "") -> None:
+    """Sustituye a una página de pago cuando el usuario está en modo gratuito."""
+    if _LICENSING:
+        txt = _paywall_text(lang)
+    else:
+        txt = {"title": "🔒", "lead": "", "bullets": [], "cta": "Microsoft Store", "note": ""}
+
+    st.markdown(f"### {txt['title']}")
+    if txt["lead"]:
+        st.markdown(txt["lead"])
+    for bullet in txt["bullets"]:
+        st.markdown(f"- {bullet}")
+    if st.button(txt["cta"], type="primary", key=f"paywall_{feature_key}"):
+        _open_store_page("product") if _LICENSING else None
+    if txt["note"]:
+        st.caption(txt["note"])
+    st.markdown("---")
+    st.caption(PAYWALL_UI.get(lang, PAYWALL_UI["es"])["back"])
+
+
+def _render_review_prompt(lang: str) -> None:
+    """Pide la valoración una sola vez, después de un momento útil (solo Windows)."""
+    if not _LICENSING:
+        return
+    try:
+        if not _review_prompt_due():
+            return
+    except Exception:
+        return
+
+    txt = _review_text(lang)
+    st.markdown("---")
+    st.markdown(f"**{txt['title']}**")
+    st.caption(txt["body"])
+    c1, c2 = st.columns([1, 3])
+    if c1.button(txt["y"], key="review_yes", type="primary"):
+        try:
+            _open_store_page("review")
+        except Exception:
+            pass
+        _mark_review_shown(True)
+        st.rerun()
+    if c2.button(txt["n"], key="review_no"):
+        _mark_review_shown(False)
+        st.rerun()
+
+# ─────────────────────────────────────────────
 # RUTAS DE DATOS PERSISTENTES
 # ─────────────────────────────────────────────
 DATA_DIR        = Path.home() / ".wifi_monitor"
@@ -366,6 +461,7 @@ def best_vendor(mac: str, arp_vendor: str = "") -> str:
 def scan_network(sudo_password: str = "") -> list:
     devices = []
     my_ip = get_local_ip()
+    track_event("scan")
 
     if platform.system() == "Windows":
         prefix = get_network_prefix()
@@ -625,6 +721,9 @@ def check_and_fire_alerts(wifi_info: dict, lat_data: dict | None = None) -> list
             send_desktop_notification(t("alert_desktop_packet_loss_title", lang), msg)
             log_alert(msg)
 
+    if fired:
+        track_event("alert")
+
     return fired
 
 
@@ -814,6 +913,20 @@ with st.sidebar:
         icon = "🟢" if sig_sb > -60 else ("🟡" if sig_sb > -75 else "🔴")
         st.caption(f"{icon} {wifi_sb.get('ssid', 'N/A')}  {sig_sb} dBm")
     st.caption(f"🕐 {datetime.now().strftime('%H:%M:%S')}")
+
+
+# ══════════════════════════════════════════════
+#  CONTROL DE ACCESO — modo gratuito vs. versión completa
+#  Gratis:   Resumen · Dispositivos · Diagnóstico video · Velocidad
+#  Completo: Intrusos · Historial · Alertas
+#  La licencia la emite y la hace cumplir Microsoft; lo que decide la app
+#  es QUÉ páginas se abren según esa licencia.
+# ══════════════════════════════════════════════
+_PREMIUM_PAGES = [t("nav_intruders", lang), t("nav_history", lang), t("nav_alerts", lang)]
+
+if page in _PREMIUM_PAGES and not is_premium():
+    _render_paywall(lang, feature_key=str(_PREMIUM_PAGES.index(page)))
+    st.stop()
 
 
 # ══════════════════════════════════════════════
@@ -1347,3 +1460,11 @@ elif page == t("nav_alerts", lang):
         st.markdown(t("notifications_explanation_windows", lang))
     else:
         st.markdown(t("notifications_explanation", lang))
+
+
+# ══════════════════════════════════════════════
+#  SOLICITUD DE RESEÑA
+#  Solo Windows, una sola vez, y solo después de un momento útil real
+#  (un escaneo, una alerta o un intruso detectado). Nunca al arrancar.
+# ══════════════════════════════════════════════
+_render_review_prompt(lang)

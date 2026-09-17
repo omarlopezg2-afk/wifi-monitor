@@ -137,6 +137,32 @@ def _local_license() -> dict | None:
     return None
 
 
+def _has_package_identity() -> bool:
+    """¿Corre la app como paquete instalado (MSIX) en Windows?
+
+    Se pregunta a Windows con GetCurrentPackageFullName: devuelve
+    APPMODEL_ERROR_NO_PACKAGE si el proceso no tiene identidad de paquete.
+    Sin dependencias externas (solo ctypes).
+    """
+    try:
+        import ctypes
+        length = ctypes.c_uint32(0)
+        res = ctypes.windll.kernel32.GetCurrentPackageFullName(ctypes.byref(length), None)
+        return res == 122          # ERROR_INSUFFICIENT_BUFFER = sí está empaquetada
+    except Exception:
+        return False
+
+
+def _store_applicable() -> bool:
+    """El modo gratuito solo se aplica a la versión que se vende: Windows + MSIX.
+
+    Fuera de ahí la app va completa: las builds de Linux/macOS se reparten gratis
+    en GitHub Releases y el .exe suelto no es el producto que se cobra. Limitarlos
+    sería cobrarle a quien no puede pagar.
+    """
+    return platform.system() == "Windows" and _has_package_identity()
+
+
 def _store_license() -> dict | None:
     """
     Licencia de la Microsoft Store (Windows + paquete MSIX).
@@ -210,6 +236,14 @@ def license_state(force: bool = False) -> dict:
         if not force and _cache["state"] and (now - _cache["at"]) < _CACHE_TTL:
             return dict(_cache["state"])
 
+    if not _store_applicable():
+        state = {"premium": True, "source": "not_store", "is_trial": False,
+                 "detail": "fuera de la Microsoft Store: todas las funciones abiertas"}
+        with _lock:
+            _cache["state"] = dict(state)
+            _cache["at"] = time.time()
+        return state
+
     state = {"premium": False, "source": "free", "is_trial": False, "detail": ""}
     store_unavailable = False
     for probe in (_local_license, _store_license):
@@ -241,7 +275,14 @@ def license_state(force: bool = False) -> dict:
 
 
 def is_premium() -> bool:
-    """True si el usuario pagó. Ante cualquier duda, False (modo gratuito)."""
+    """True si el usuario puede usar las funciones completas.
+
+    Fuera de la versión de la Store (Linux, macOS, .exe suelto) devuelve True:
+    ahí la app no se vende y debe ir completa. Dentro de la Store manda la
+    licencia: compra activa = completo; sin compra o prueba vencida = gratuito.
+    """
+    if not _store_applicable():
+        return True
     return bool(license_state().get("premium"))
 
 

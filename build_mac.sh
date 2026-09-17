@@ -122,6 +122,7 @@ pyinstaller \
     --osx-bundle-identifier "${BUNDLE_ID}" \
     --add-data "wifi_monitor.py:." \
     --add-data "i18n.py:." \
+      --add-data "licensing.py:." \
     --add-data "oui_db.json:." \
     --hidden-import "streamlit" \
     --hidden-import "streamlit.web.cli" \

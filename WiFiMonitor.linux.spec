@@ -46,6 +46,11 @@ hiddenimports = [
     'webview.platforms.gtk',
     'i18n',
     'speedtest',
+    # El candado va en datas (arriba) Y como módulo analizado. Si algún día se
+    # quita de datas por error, el import sigue resolviendo por el PYZ; y si se
+    # quita de aquí, sigue resolviendo por el archivo suelto. El import que
+    # falla NO rompe la app: la deja abierta y en silencio (ver is_premium()).
+    'licensing',
 ]
 
 for pkg in ('streamlit', 'altair', 'webview'):

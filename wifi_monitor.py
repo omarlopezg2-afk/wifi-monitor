@@ -41,10 +41,27 @@ try:
                            mark_value_event          as _mark_value_event,
                            review_prompt_due         as _review_prompt_due,
                            mark_review_prompt_shown  as _mark_review_shown,
-                           open_store_page           as _open_store_page)
+                           open_store_page           as _open_store_page,
+                           purchase_full_version     as _purchase_full_version)
     _LICENSING = True
-except Exception:
+    _LICENSING_ERROR = None
+except Exception as _lic_err:
+    # Se mantiene el fail-open (ver is_premium()): preferimos regalar la app a
+    # bloquear a alguien que ya pagó. Lo que NO se mantiene es el silencio —
+    # antes un bundle sin el candado se publicaba sin que nadie se enterara.
+    # Ahora queda rastro en stderr y en ~/.wifi_monitor/licensing-error.log.
     _LICENSING = False
+    _LICENSING_ERROR = _lic_err
+    try:
+        import traceback as _tb
+        _detalle = _tb.format_exc()
+        print(f"[licensing] IMPORT FALLIDO: {_lic_err}\n{_detalle}", file=sys.stderr, flush=True)
+        _log_err = Path.home() / ".wifi_monitor" / "licensing-error.log"
+        _log_err.parent.mkdir(parents=True, exist_ok=True)
+        with open(_log_err, "a", encoding="utf-8") as _fh:
+            _fh.write(f"{datetime.now().isoformat()} bundle sin candado: {_lic_err}\n{_detalle}\n")
+    except Exception:
+        pass
 
 
 def is_premium() -> bool:
@@ -52,6 +69,10 @@ def is_premium() -> bool:
 
     Si el módulo licensing falta (bundle incompleto), se asume premium: es
     preferible regalar la app a dejar bloqueado a alguien que ya pagó.
+
+    OJO: eso hace que un bundle incompleto no falle, solo abra todo. Lo que
+    impide publicarlo es la verificación de CI (scripts/verificar_candado.sh),
+    no este código. Aquí solo se deja rastro de que pasó.
     """
     if not _LICENSING:
         return True
@@ -93,7 +114,18 @@ def _render_paywall(lang: str, feature_key: str = "") -> None:
     for bullet in txt["bullets"]:
         st.markdown(f"- {bullet}")
     if st.button(txt["cta"], type="primary", key=f"paywall_{feature_key}"):
-        _open_store_page("product") if _LICENSING else None
+        if _LICENSING:
+            # Compra in-app del add-on (StoreContext.RequestPurchaseAsync). Si
+            # sale bien, licensing ya limpió su caché y al refrescar la app
+            # entra completa; si falla, se abre la ficha de la Store como antes.
+            try:
+                res = _purchase_full_version()
+            except Exception as exc:                  # nunca romper la app
+                res = {"ok": False, "detail": str(exc)}
+            if res.get("ok"):
+                st.rerun()
+            else:
+                st.caption(res.get("detail", ""))
     if txt["note"]:
         st.caption(txt["note"])
     st.markdown("---")

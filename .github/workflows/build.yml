@@ -436,16 +436,22 @@ jobs:
             exit 1
           }
 
-          $winrt = Get-ChildItem -Path $destino -Recurse -File | Where-Object { $_.FullName -match 'winrt' }
-          if (-not $winrt) {
-            Write-Error "El .msix NO lleva winrt: la app no podría leer la licencia de la Store, el paywall se quedaría sin salida y ninguna compra desbloquearía."
+          # No basta con que aparezca 'winrt' en alguna ruta: --collect-all también
+          # copia los dist-info, así que con solo metadatos esto daría un verde
+          # falso. Hay que exigir lo que de verdad hace falta para importar: el
+          # binario de la Store y el __init__.py del namespace que usa la app.
+          $storePyd = Get-ChildItem -Path $destino -Recurse -File | Where-Object { $_.Name -match '_winrt_windows_services_store.*\.pyd$' }
+          if (-not $storePyd) {
+            Write-Error "El .msix no lleva el binario winrt de la Store (_winrt_windows_services_store*.pyd): StoreContext no se podría importar y ninguna compra desbloquearía."
             exit 1
           }
-          if (-not ($winrt | Where-Object { $_.FullName -match 'services' })) {
-            Write-Error "winrt viaja en el .msix pero le falta el namespace services.store: StoreContext no se podría importar."
+          $storeInit = Get-ChildItem -Path $destino -Recurse -File | Where-Object { $_.FullName -match 'windows[\\/]services[\\/]store[\\/]__init__\.py$' }
+          if (-not $storeInit) {
+            Write-Error "Falta winrt/windows/services/store/__init__.py en el .msix: el import de StoreContext no resolvería."
             exit 1
           }
-          Write-Host "✅ .msix — licensing.py idéntico al repo + winrt presente ($($winrt.Count) archivos, services.store incluido)"
+          $winrtTotal = (Get-ChildItem -Path $destino -Recurse -File | Where-Object { $_.FullName -match 'winrt' }).Count
+          Write-Host "✅ .msix — licensing.py idéntico al repo + winrt operativo ($winrtTotal archivos; binario de la Store y namespace presentes)"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

@@ -101,25 +101,14 @@ jobs:
           pip install --upgrade pyinstaller streamlit plotly pandas psutil speedtest-cli pywebview "PyGObject<3.51"
 
       - name: Compilar con PyInstaller
-        run: |
-          pyinstaller \
-            --noconfirm --onedir --windowed \
-            --name WiFiMonitor \
-            --add-data "wifi_monitor.py:." \
-            --add-data "i18n.py:." \
-            --add-data "oui_db.json:." \
-            --hidden-import speedtest \
-            --hidden-import streamlit \
-            --hidden-import streamlit.web.cli \
-            --hidden-import streamlit.runtime.scriptrunner \
-            --hidden-import i18n \
-            --hidden-import altair \
-            --hidden-import webview \
-            --hidden-import webview.platforms.gtk \
-            --collect-all streamlit \
-            --collect-all altair \
-            --collect-all webview \
-            launcher.py
+        # El contenido del bundle se define en UN solo sitio: WiFiMonitor.linux.spec
+        # (que es lo que usan build_appimage.sh y build_deb.sh).
+        #
+        # Antes este paso repetía los flags a mano y la lista se quedó sin
+        # --add-data "licensing.py:." → el bundle salía sin el candado de pago y,
+        # como el import falla en silencio, la app abría completa sin avisar.
+        # Con el .spec eso no puede divergir: añadirlo ahí es añadirlo en todas partes.
+        run: pyinstaller --noconfirm WiFiMonitor.linux.spec
 
       - name: Descargar appimagetool
         run: |
@@ -133,6 +122,11 @@ jobs:
       - name: Construir paquete .deb
         run: |
           bash build_deb.sh
+
+      - name: Verificar que el candado viaja en los paquetes
+        # Impide publicar una versión sin licensing.py dentro del bundle: sin
+        # candado la app no falla, abre todo y en silencio (fail-open).
+        run: bash scripts/verificar_candado.sh WiFiMonitor_*.deb WiFiMonitor-*.AppImage
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -381,6 +375,29 @@ jobs:
           }
           Write-Host "✅ .msix firmado con certificado de prueba (Subject coincide con el Publisher)."
           Remove-Item test_cert.pfx -ErrorAction SilentlyContinue
+
+      - name: Verificar que el candado viaja en el .msix
+        # El .msix es el producto que SÍ se cobra: si sale sin licensing.py, la
+        # app de la Store abriría completa y en silencio (mismo fail-open).
+        shell: pwsh
+        run: |
+          $esperado = (Get-FileHash licensing.py -Algorithm SHA256).Hash
+          $destino = Join-Path $env:RUNNER_TEMP "msix_check"
+          if (Test-Path $destino) { Remove-Item $destino -Recurse -Force }
+          Expand-Archive -Path WifiMonitor.msix -DestinationPath $destino -Force
+
+          $f = Get-ChildItem -Path $destino -Recurse -Filter licensing.py | Select-Object -First 1
+          if ($null -eq $f) {
+            Write-Error "El .msix NO contiene licensing.py: el candado no viaja y la app abriría completa en silencio."
+            exit 1
+          }
+
+          $real = (Get-FileHash $f.FullName -Algorithm SHA256).Hash
+          if ($real -ne $esperado) {
+            Write-Error "El .msix trae un licensing.py DISTINTO al del repo ($real != $esperado)."
+            exit 1
+          }
+          Write-Host "✅ .msix — licensing.py presente e idéntico al repo ($($f.Length) bytes)"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

@@ -43,8 +43,24 @@ try:
                            mark_review_prompt_shown  as _mark_review_shown,
                            open_store_page           as _open_store_page)
     _LICENSING = True
-except Exception:
+    _LICENSING_ERROR = None
+except Exception as _lic_err:
+    # Se mantiene el fail-open (ver is_premium()): preferimos regalar la app a
+    # bloquear a alguien que ya pagó. Lo que NO se mantiene es el silencio —
+    # antes un bundle sin el candado se publicaba sin que nadie se enterara.
+    # Ahora queda rastro en stderr y en ~/.wifi_monitor/licensing-error.log.
     _LICENSING = False
+    _LICENSING_ERROR = _lic_err
+    try:
+        import traceback as _tb
+        _detalle = _tb.format_exc()
+        print(f"[licensing] IMPORT FALLIDO: {_lic_err}\n{_detalle}", file=sys.stderr, flush=True)
+        _log_err = Path.home() / ".wifi_monitor" / "licensing-error.log"
+        _log_err.parent.mkdir(parents=True, exist_ok=True)
+        with open(_log_err, "a", encoding="utf-8") as _fh:
+            _fh.write(f"{datetime.now().isoformat()} bundle sin candado: {_lic_err}\n{_detalle}\n")
+    except Exception:
+        pass
 
 
 def is_premium() -> bool:
@@ -52,6 +68,10 @@ def is_premium() -> bool:
 
     Si el módulo licensing falta (bundle incompleto), se asume premium: es
     preferible regalar la app a dejar bloqueado a alguien que ya pagó.
+
+    OJO: eso hace que un bundle incompleto no falle, solo abra todo. Lo que
+    impide publicarlo es la verificación de CI (scripts/verificar_candado.sh),
+    no este código. Aquí solo se deja rastro de que pasó.
     """
     if not _LICENSING:
         return True

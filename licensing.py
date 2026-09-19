@@ -315,8 +315,8 @@ _PAYWALL = {
             "**Historial de 7 días** — quién consume y a qué hora, para saber si el problema es tu casa o el operador",
             "**Alertas** — avisos de escritorio cuando la señal cae, sube la latencia o hay pérdida de paquetes",
         ],
-        "cta": "Abrir en Microsoft Store",
-        "note": "Gratis 7 días con todo activo · Después, USD 2,99. El modo gratuito sigue funcionando siempre.",
+        "cta": "Desbloquear por USD 1,99",
+        "note": "La app es gratis y el modo gratuito sigue funcionando siempre. El desbloqueo se paga una sola vez y es tuyo para siempre.",
     },
     "en": {
         "title": "🔒 This feature is part of the full version",
@@ -326,8 +326,8 @@ _PAYWALL = {
             "**7-day history** — who uses what, and when, to tell whether the problem is your house or your ISP",
             "**Alerts** — desktop notifications when signal drops, latency spikes or packets are lost",
         ],
-        "cta": "Open in Microsoft Store",
-        "note": "7 days free with everything enabled · Then USD 2.99. Free mode always keeps working.",
+        "cta": "Unlock for USD 1.99",
+        "note": "The app is free and free mode always keeps working. The unlock is a one-time purchase and stays yours forever.",
     },
     "pt": {
         "title": "🔒 Este recurso é da versão completa",
@@ -337,8 +337,8 @@ _PAYWALL = {
             "**Histórico de 7 dias** — quem consome e a que hora, para saber se o problema é a sua casa ou a operadora",
             "**Alertas** — notificações na área de trabalho quando o sinal cai, a latência sobe ou há perda de pacotes",
         ],
-        "cta": "Abrir na Microsoft Store",
-        "note": "7 dias grátis com tudo ativo · Depois, USD 2,99. O modo gratuito continua funcionando.",
+        "cta": "Desbloquear por USD 1,99",
+        "note": "O app é gratuito e o modo gratuito continua funcionando. O desbloqueio é pago uma única vez e fica seu para sempre.",
     },
     "fr": {
         "title": "🔒 Cette fonction fait partie de la version complète",
@@ -348,8 +348,8 @@ _PAYWALL = {
             "**Historique 7 jours** — qui consomme et à quelle heure, pour savoir si le problème vient de chez vous ou de l'opérateur",
             "**Alertes** — notifications de bureau quand le signal baisse, la latence grimpe ou des paquets se perdent",
         ],
-        "cta": "Ouvrir dans le Microsoft Store",
-        "note": "7 jours gratuits, tout activé · Ensuite, 2,99 USD. Le mode gratuit reste disponible.",
+        "cta": "Débloquer pour 1,99 USD",
+        "note": "L'application est gratuite et le mode gratuit reste disponible. Le déblocage se paie une seule fois et reste à vous pour toujours.",
     },
     "de": {
         "title": "🔒 Diese Funktion gehört zur Vollversion",
@@ -359,8 +359,8 @@ _PAYWALL = {
             "**7-Tage-Verlauf** — wer wann wie viel verbraucht, um Haus oder Anbieter als Ursache zu erkennen",
             "**Warnungen** — Desktop-Hinweise bei Signalabfall, hoher Latenz oder Paketverlust",
         ],
-        "cta": "Im Microsoft Store öffnen",
-        "note": "7 Tage gratis mit allen Funktionen · Danach 2,99 USD. Der Gratis-Modus bleibt erhalten.",
+        "cta": "Für 1,99 USD freischalten",
+        "note": "Die App ist gratis und der Gratis-Modus bleibt erhalten. Das Freischalten zahlst du einmal und gehört dir dauerhaft.",
     },
     "it": {
         "title": "🔒 Questa funzione fa parte della versione completa",
@@ -370,8 +370,8 @@ _PAYWALL = {
             "**Cronologia 7 giorni** — chi consuma e quando, per capire se il problema è casa tua o l'operatore",
             "**Avvisi** — notifiche desktop quando il segnale cala, la latenza sale o ci sono pacchetti persi",
         ],
-        "cta": "Apri in Microsoft Store",
-        "note": "7 giorni gratis con tutto attivo · Poi 2,99 USD. La modalità gratuita resta sempre disponibile.",
+        "cta": "Sblocca per 1,99 USD",
+        "note": "L'app è gratuita e la modalità gratuita resta sempre disponibile. Lo sblocco si paga una sola volta ed è tuo per sempre.",
     },
 }
 
@@ -459,8 +459,75 @@ def mark_review_prompt_shown(accepted: bool = False) -> None:
 
 
 # ─────────────────────────────────────────────
-# ABRIR LA STORE
+# ABRIR LA STORE / COMPRAR EL DESBLOQUEO
 # ─────────────────────────────────────────────
+
+# Store ID del add-on duradero que desbloquea (modelo app gratis + add-on).
+# El de la app (STORE_PRODUCT_ID) sirve para su ficha y para la valoración;
+# la compra del desbloqueo va contra ESTE id, no contra el de la app.
+ADDON_PRODUCT_ID = "9MWKCPRWBCZL"
+
+
+def purchase_full_version() -> dict:
+    """Abre la compra del add-on de desbloqueo y deja la licencia refrescada.
+
+    Devuelve {"ok": bool, "detail": str}. Es el camino documentado por Microsoft
+    para un add-on duradero: StoreContext.RequestPurchaseAsync muestra el pago
+    de la Store DENTRO de la app, sin mandar al usuario a buscarlo en la ficha.
+
+    Si winrt no está disponible (o la llamada falla), cae a abrir la ficha de la
+    app en la Store —el comportamiento anterior— para no dejar al usuario sin
+    salida. Nunca lanza.
+    """
+    if platform.system() != "Windows":
+        return {"ok": False, "detail": "solo Windows"}
+
+    try:
+        import asyncio
+        from winrt.windows.services.store import StoreContext
+    except Exception as exc:
+        open_store_page("product")
+        return {"ok": False, "detail": f"sin winrt ({exc}); se abrió la ficha en la Store"}
+
+    async def _pedir():
+        ctx = StoreContext.get_default()
+        # Primero se resuelve el add-on por su Store ID y se compra ese producto:
+        # así no depende de cómo se llame la oferta dentro de la app.
+        try:
+            q = await ctx.get_store_products_async(["Durable"], [ADDON_PRODUCT_ID])
+            items = getattr(q, "products", None) or q
+            try:
+                items = list(items.values())
+            except AttributeError:
+                items = list(items)
+            if items:
+                return await ctx.request_purchase_async(items[0].store_id)
+        except Exception:
+            pass
+        return await ctx.request_purchase_async(ADDON_PRODUCT_ID)
+
+    try:
+        res = asyncio.run(asyncio.wait_for(_pedir(), timeout=300))
+    except Exception as exc:
+        open_store_page("product")
+        return {"ok": False, "detail": f"falló la compra ({exc}); se abrió la ficha en la Store"}
+
+    estado = getattr(res, "status", None)
+    texto = str(estado)
+    # Succeeded y AlreadyPurchased significan lo mismo para nosotros: el usuario
+    # tiene derecho a la versión completa.
+    exito = ("Succeed" in texto) or ("Already" in texto)
+    if not exito:
+        try:
+            exito = int(getattr(estado, "value", estado)) in (1, 2)
+        except Exception:
+            exito = False
+
+    if exito:
+        clear_cache()          # que la app entre completa sin reiniciar
+        return {"ok": True, "detail": texto}
+    return {"ok": False, "detail": texto or "compra no completada"}
+
 
 def open_store_page(which: str = "review") -> bool:
     """

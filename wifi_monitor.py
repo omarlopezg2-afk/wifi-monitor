@@ -41,7 +41,8 @@ try:
                            mark_value_event          as _mark_value_event,
                            review_prompt_due         as _review_prompt_due,
                            mark_review_prompt_shown  as _mark_review_shown,
-                           open_store_page           as _open_store_page)
+                           open_store_page           as _open_store_page,
+                           purchase_full_version     as _purchase_full_version)
     _LICENSING = True
     _LICENSING_ERROR = None
 except Exception as _lic_err:
@@ -113,7 +114,18 @@ def _render_paywall(lang: str, feature_key: str = "") -> None:
     for bullet in txt["bullets"]:
         st.markdown(f"- {bullet}")
     if st.button(txt["cta"], type="primary", key=f"paywall_{feature_key}"):
-        _open_store_page("product") if _LICENSING else None
+        if _LICENSING:
+            # Compra in-app del add-on (StoreContext.RequestPurchaseAsync). Si
+            # sale bien, licensing ya limpió su caché y al refrescar la app
+            # entra completa; si falla, se abre la ficha de la Store como antes.
+            try:
+                res = _purchase_full_version()
+            except Exception as exc:                  # nunca romper la app
+                res = {"ok": False, "detail": str(exc)}
+            if res.get("ok"):
+                st.rerun()
+            else:
+                st.caption(res.get("detail", ""))
     if txt["note"]:
         st.caption(txt["note"])
     st.markdown("---")

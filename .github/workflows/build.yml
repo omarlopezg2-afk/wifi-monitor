@@ -33,9 +33,13 @@ on:
       - "v*"          # Disparo alterno si alguna vez empujas un tag por git.
   workflow_dispatch:  # Forma recomendada de disparar un release.
     inputs:
+      modo_prueba:
+        description: "Solo compilar y verificar (no crea tag ni release)"
+        type: boolean
+        default: false
       version:
-        description: "Versión a liberar (ej. 6.18)"
-        required: true
+        description: "Versión a liberar (ej. 6.21). Obligatoria salvo en modo prueba."
+        required: false
 
 jobs:
 
@@ -48,12 +52,16 @@ jobs:
     outputs:
       version: ${{ steps.set.outputs.version }}
       tag: ${{ steps.set.outputs.tag }}
+      modo_prueba: ${{ steps.set.outputs.modo_prueba }}
 
     steps:
       - name: Determinar versión y tag
         id: set
         shell: bash
         run: |
+          modo="${{ github.event.inputs.modo_prueba }}"
+          [ -z "$modo" ] && modo="false"
+
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             version="${{ github.event.inputs.version }}"
             tag="v${version}"
@@ -61,8 +69,26 @@ jobs:
             tag="${{ github.ref_name }}"
             version="${tag#v}"
           fi
+
+          # En modo prueba no se publica nada, así que la versión es solo una
+          # etiqueta para los artefactos que descargas. Si el disparo es un
+          # release de verdad, la versión sí es obligatoria.
+          if [ -z "$version" ]; then
+            if [ "$modo" = "true" ]; then
+              version="0.0.0"
+              tag="v0.0.0"
+            else
+              echo "::error::falta la versión (o marca 'modo prueba' para compilar y verificar sin publicar)"
+              exit 1
+            fi
+          fi
+
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "modo_prueba=$modo" >> "$GITHUB_OUTPUT"
+          if [ "$modo" = "true" ]; then
+            echo "🧪 MODO PRUEBA: se compila y se verifican los paquetes, no se crea tag ni release."
+          fi
           echo "▶️ Versión: $version — Tag: $tag"
 
   # ─────────────────────────────────────────────
@@ -478,6 +504,9 @@ jobs:
   release:
     name: 📦 Crear Release
     needs: [prep, build-linux, build-windows, build-mac]
+    # En modo prueba no se publica: sin tag, sin release, solo los artefactos
+    # del run para poder auditar los paquetes antes de comprometerse.
+    if: ${{ needs.prep.outputs.modo_prueba != 'true' }}
     runs-on: ubuntu-latest
 
     permissions:

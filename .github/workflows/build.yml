@@ -376,12 +376,26 @@ jobs:
           Write-Host "✅ .msix firmado con certificado de prueba (Subject coincide con el Publisher)."
           Remove-Item test_cert.pfx -ErrorAction SilentlyContinue
 
-      - name: Verificar que el candado viaja en el .msix
-        # El .msix es el producto que SÍ se cobra: si sale sin licensing.py, la
-        # app de la Store abriría completa y en silencio (mismo fail-open).
+      - name: Verificar que el candado y su acceso a la Store viajan en el .msix
+        # Dos comprobaciones, y las dos por el mismo motivo: si algo de esto
+        # falta la app NO falla, se queda en modo gratuito.
+        #   1. licensing.py  → sin él no hay candado.
+        #   2. winrt (namespace services.store) → sin él la licencia de la Store
+        #      no se puede leer: el paywall aparece y una compra no desbloquea
+        #      nada (solo las máquinas con la compra ya confirmada).
+        # Los hashes se comparan ignorando CRLF/LF: en Windows el checkout es
+        # CRLF y en Linux LF, y eso no debe teñir de rojo la verificación.
         shell: pwsh
         run: |
-          $esperado = (Get-FileHash licensing.py -Algorithm SHA256).Hash
+          function Get-HashNormalizado([string]$Ruta) {
+            $txt = [IO.File]::ReadAllText($Ruta).Replace("`r`n", "`n")
+            $sha = [Security.Cryptography.SHA256]::Create()
+            try {
+              return ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($txt))) -replace '-', '').ToLower()
+            } finally { $sha.Dispose() }
+          }
+
+          $esperado = Get-HashNormalizado "licensing.py"
           $destino = Join-Path $env:RUNNER_TEMP "msix_check"
           if (Test-Path $destino) { Remove-Item $destino -Recurse -Force }
           Expand-Archive -Path WifiMonitor.msix -DestinationPath $destino -Force
@@ -391,13 +405,21 @@ jobs:
             Write-Error "El .msix NO contiene licensing.py: el candado no viaja y la app abriría completa en silencio."
             exit 1
           }
-
-          $real = (Get-FileHash $f.FullName -Algorithm SHA256).Hash
-          if ($real -ne $esperado) {
-            Write-Error "El .msix trae un licensing.py DISTINTO al del repo ($real != $esperado)."
+          if ((Get-HashNormalizado $f.FullName) -ne $esperado) {
+            Write-Error "El .msix trae un licensing.py DISTINTO al del repo."
             exit 1
           }
-          Write-Host "✅ .msix — licensing.py presente e idéntico al repo ($($f.Length) bytes)"
+
+          $winrt = Get-ChildItem -Path $destino -Recurse -File | Where-Object { $_.FullName -match 'winrt' }
+          if (-not $winrt) {
+            Write-Error "El .msix NO lleva winrt: la app no podría leer la licencia de la Store, el paywall se quedaría sin salida y ninguna compra desbloquearía."
+            exit 1
+          }
+          if (-not ($winrt | Where-Object { $_.FullName -match 'services' })) {
+            Write-Error "winrt viaja en el .msix pero le falta el namespace services.store: StoreContext no se podría importar."
+            exit 1
+          }
+          Write-Host "✅ .msix — licensing.py idéntico al repo + winrt presente ($($winrt.Count) archivos, services.store incluido)"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

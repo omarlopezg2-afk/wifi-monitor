@@ -21,7 +21,7 @@ if [ ! -f licensing.py ]; then
   exit 1
 fi
 
-esperado=$(sha256sum licensing.py | awk '{print $1}')
+esperado=$(tr -d '\r' < licensing.py | sha256sum | awk '{print $1}')
 fallo=0
 
 for paquete in "$@"; do
@@ -60,7 +60,7 @@ for paquete in "$@"; do
     echo "::error::$paquete NO contiene licensing.py — el candado no viaja y la app abriría completa en silencio"
     fallo=1
   else
-    real=$(sha256sum "$encontrado" | awk '{print $1}')
+    real=$(tr -d '\r' < "$encontrado" | sha256sum | awk '{print $1}')
     if [ "$real" != "$esperado" ]; then
       echo "::error::$paquete trae un licensing.py DISTINTO al del repo ($real != $esperado)"
       fallo=1

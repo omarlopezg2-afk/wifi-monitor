@@ -94,6 +94,19 @@ def main():
         "--hidden-import", "webview",
         "--hidden-import", "webview.platforms.edgechromium",
         "--hidden-import", "clr",
+        # ── Estas dos líneas son las que faltaban ────────────────────
+        # licensing.py viaja como DATO (--add-data), así que PyInstaller no
+        # analiza su bytecode: todo lo que importe hay que declararlo aquí.
+        # winrt va repartido en winrt-runtime + winrt-Windows.* (namespace), y
+        # sin recolectarlo explícitamente NO entra en el bundle. Sin él,
+        # StoreContext no se puede importar, _store_license() devuelve None y
+        # la app se queda en modo gratuito: el paywall aparece y una compra
+        # no desbloquea nada (solo las máquinas con la compra ya confirmada).
+        "--hidden-import", "licensing",
+        "--hidden-import", "winrt.windows.services.store",
+        "--hidden-import", "winrt.windows.foundation",
+        "--collect-all", "winrt",
+        "--collect-binaries", "winrt",
         "--collect-all", "streamlit",
         "--collect-all", "altair",
         "--collect-all", "plotly",
